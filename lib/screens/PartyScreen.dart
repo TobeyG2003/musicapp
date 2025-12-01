@@ -33,7 +33,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(255, 98, 39, 176),
-        title: Text('Room - $widget.roomId', style: TextStyle(color: Colors.white,)),
+        title: Text('Room - ${widget.roomId}', style: TextStyle(color: Colors.white,)),
       ),
       drawer: appbarDrawer(),
             bottomNavigationBar: BottomNavigationBar(
@@ -107,7 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       String userId = _auth.currentUser!.uid;
-      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+      await FirebaseFirestore.instance.collection('lobbies').doc(widget.roomId).collection('messages').add({
         'message': _messageController.text.trim(),
         'userId': userId,
         'timestamp': Timestamp.now(),
@@ -148,7 +148,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('messages')
+                  .collection('lobbies')
                   .doc(widget.roomId)
                   .collection('messages')
                   .orderBy('timestamp', descending: true)

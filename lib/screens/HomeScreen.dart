@@ -9,6 +9,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 import 'drawer.dart';
+import 'dart:math';
+import 'PartyScreen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.title});
@@ -85,11 +87,41 @@ class _GroupListScreenState extends State<GroupListScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                
+                createLobby('public', true, 'testlobby');
               },
               child: Text('Host a Party'),
             ),
-            Text('Or Make Some New Ones')
+            Text('Or Make Some New Ones'),
+            StreamBuilder(
+              stream: FirebaseFirestore.instance.collection('lobbies').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return CircularProgressIndicator();
+                }
+                final lobbies = snapshot.data!.docs;
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: lobbies.length,
+                  itemBuilder: (context, index) {
+                    final lobby = lobbies[index];
+                    if (lobby['visibility'] != 'public') {
+                      return SizedBox.shrink();
+                    }
+                    return ListTile(
+                      title: Text(lobby['lobbyName'] ?? 'No Name'),
+                      subtitle: Text('Visibility: ${lobby['visibility']}'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => Partyscreen(roomId: lobby.id)),
+                          );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
           ],
       )
     ),
@@ -120,11 +152,52 @@ class _PartyListScreenState extends State<PartyListScreen> {
   }
 }
 
-void joinParty() {
-
-}
-
 void hostParty() {
 
 }
 
+String generateRandomCode() {
+  const String alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  Random random = Random();
+  String code = "";
+  for (int i = 0; i < 6; i++) {
+    code += alpha[random.nextInt(alpha.length)];
+  }
+  return code;
+}
+
+Future<String?> createLobby(String visibility, bool voting, String lobbyName) async {
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  String lobbyCode = generateRandomCode();
+  final DocumentReference docRef = _firestore.collection('lobbies').doc(lobbyCode);
+  final DocumentSnapshot docSnap = await docRef.get();
+
+  if (docSnap.exists) {
+    return createLobby(visibility, voting, lobbyName);
+  }
+
+  try {
+    await docRef.set({
+      'visibility': visibility,
+      'lobbyName': lobbyName,
+      'createdAt': FieldValue.serverTimestamp(),
+      'voting': voting,
+      'currentSong': null, //to be used later maybe?
+    });
+
+    await docRef.collection('messages').add({
+      'test': 'test',
+    });
+
+    await docRef.collection('history').add({
+      'test': 'test',
+    });
+
+    return lobbyCode;
+  } catch (e) {
+    print("Error creating lobby: $e");
+    return null;
+  }
+}

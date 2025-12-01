@@ -25,6 +25,13 @@ class MyApp extends StatelessWidget {
       title: 'Music App',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        scaffoldBackgroundColor: const Color.fromARGB(255, 39, 39, 39),
+        textTheme: const TextTheme(
+          headlineLarge: TextStyle(color: Colors.white), 
+          bodyLarge: TextStyle(color: Colors.white), 
+          bodyMedium: TextStyle(color: Colors.white),
+          labelSmall: TextStyle(color: Colors.white),
+        ),
       ),
       home: const Splash(title: 'Music App'),
     );

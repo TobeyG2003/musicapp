@@ -19,7 +19,6 @@ class Splash extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 255, 255, 255),
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(255, 98, 39, 176),
         title: Text(title, style: TextStyle(color: Colors.white)),

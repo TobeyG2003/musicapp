@@ -48,7 +48,6 @@ class _SigninState extends State<Signin> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 255, 255, 255),
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(255, 98, 39, 176),
         title: Text(widget.title, style: TextStyle(color: Colors.white)),

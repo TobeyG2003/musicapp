@@ -188,14 +188,14 @@ class _profilescreenState extends State<profilescreen> {
   Widget build(BuildContext context) {
     if (_isLoadingData) {
       return Scaffold(
-        backgroundColor: const Color.fromARGB(255, 247, 213, 255),
+        backgroundColor: Colors.white,
         appBar: AppBar(title: Text('Profile Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 247, 213, 255),
+      backgroundColor: Colors.white,
       appBar: AppBar(title: Text('Profile Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
       body: Center(
         child: Column(
@@ -423,7 +423,7 @@ class _settingsscreenState extends State<settingsscreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 247, 213, 255),
+      backgroundColor: Colors.white,
       appBar: AppBar(title: Text('Settings Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
       body: Center(
         child: Column(

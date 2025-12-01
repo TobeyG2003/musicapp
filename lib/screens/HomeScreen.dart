@@ -72,7 +72,28 @@ class GroupListScreen extends StatefulWidget {
 class _GroupListScreenState extends State<GroupListScreen> {
   @override
   Widget build(BuildContext context) {
-    return Text('grouplistscreen');
+    return SingleChildScrollView(
+      child: Center (
+        child: Column(
+          children: [
+            Text('Connect With Friends'),
+            ElevatedButton(
+              onPressed: () {
+                
+              },
+              child: Text('Join a Party'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                
+              },
+              child: Text('Host a Party'),
+            ),
+            Text('Or Make Some New Ones')
+          ],
+      )
+    ),
+    );
   }
   
 }
@@ -87,7 +108,23 @@ class PartyListScreen extends StatefulWidget {
 class _PartyListScreenState extends State<PartyListScreen> {
   @override
   Widget build(BuildContext context) {
-    return Text('partylistscreen');
+    return SingleChildScrollView(
+      child: Center (
+        child: Column(
+          children: [
+            Text('Your Past Parties'),
+          ],
+      )
+    ),
+    );
   }
+}
+
+void joinParty() {
+
+}
+
+void hostParty() {
+
 }
 

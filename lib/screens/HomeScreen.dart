@@ -12,6 +12,8 @@ import 'drawer.dart';
 import 'dart:math';
 import 'PartyScreen.dart';
 
+final FirebaseAuth _auth = FirebaseAuth.instance;
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.title});
 
@@ -64,6 +66,104 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
   }
 }
 
+ Future<void> showRoomDialogue(BuildContext context) async {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _roomNameController = TextEditingController();
+  final username;
+
+  String? userId = _auth.currentUser?.uid;
+      if (userId != null) {
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+        if (userDoc.exists) {
+          username = userDoc['displayname'];
+        } else {
+          username = 'Unknown';
+        }
+
+  final String roomName = '';
+  bool isVoting = true;
+  String visibility = 'public';
+    _roomNameController.text = '$username\'s Room';
+
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          return AlertDialog(
+            title: Text('Create a Room'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Form(
+                  key: _formKey,
+                  child: TextFormField(
+                    controller: _roomNameController,
+                    decoration: InputDecoration(labelText: 'Room Name'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter a room name';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                
+                DropdownButtonFormField<String>(
+                  decoration: InputDecoration(labelText: 'Visibility'),
+                  items: <String>['public', 'private'].map((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    visibility = newValue!;
+                  },
+                ),
+                CheckboxListTile(
+                  title: Text('Enable Voting'),
+                  value: isVoting,
+                  onChanged: (bool? value) {
+                    setState(() {
+                      isVoting = value!;
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: <Widget>[
+              ElevatedButton(
+                child: Text('Cancel'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+              ElevatedButton(
+                child: Text('Create'),
+                onPressed: () async {
+                  if (_formKey.currentState!.validate()) {
+                    String? lobbyCode = await createLobby(visibility, isVoting, _roomNameController.text);
+                    Navigator.of(context).pop();
+                     Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => Partyscreen(roomId: lobbyCode!)),
+                    );
+                  }
+                },
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+}
+
 class GroupListScreen extends StatefulWidget {
   const GroupListScreen({super.key});
 
@@ -72,6 +172,9 @@ class GroupListScreen extends StatefulWidget {
 }
 
 class _GroupListScreenState extends State<GroupListScreen> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _codeController = TextEditingController();
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -79,15 +182,43 @@ class _GroupListScreenState extends State<GroupListScreen> {
         child: Column(
           children: [
             Text('Connect With Friends'),
+            Form(
+              key: _formKey,
+              child: TextFormField(
+                controller: _codeController,
+                decoration: InputDecoration(labelText: 'Enter Room Code'),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a room code';
+                  }
+                  return null;
+                },
+              ),
+            ),
             ElevatedButton(
-              onPressed: () {
-                
+              onPressed: () async {
+                if (_formKey.currentState!.validate()) {
+                  final code = _codeController.text.trim();
+                  final docRef = FirebaseFirestore.instance.collection('lobbies').doc(code.toUpperCase());
+                  final docSnapshot = await docRef.get();
+                  if (!docSnapshot.exists) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Room code does not exist')),
+                    );
+                    return;
+                  }
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => Partyscreen(roomId: code.toUpperCase())),
+                  );
+                }
               },
               child: Text('Join a Party'),
             ),
+            Text('OR'),
             ElevatedButton(
               onPressed: () {
-                createLobby('public', true, 'testlobby');
+                showRoomDialogue(context);
               },
               child: Text('Host a Party'),
             ),
@@ -201,3 +332,4 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
     return null;
   }
 }
+

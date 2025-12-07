@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 
 void main() async {
@@ -32,6 +33,8 @@ class MyApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.white),
           labelSmall: TextStyle(color: Colors.white),
         ),
+        useMaterial3: true,
+        fontFamily: GoogleFonts.poppins().fontFamily,
       ),
       home: const Splash(title: 'Music App'),
     );

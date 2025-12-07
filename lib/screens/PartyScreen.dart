@@ -25,7 +25,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -48,6 +48,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
         selectedItemColor: Colors.white,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.library_music), label: 'Song'),
+          BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
           BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
           BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
         ],
@@ -56,6 +57,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
         controller: _tabController,
         children: [
           SongScreen(),
+          QueueScreen(roomId: widget.roomId),
           ChatScreen(roomId: widget.roomId),
           HistoryScreen(),
         ]
@@ -79,6 +81,30 @@ class _SongScreenState extends State<SongScreen> {
         child: Column(
           children: [
             Text('Current Song'),
+          ],
+      )
+    ),
+    );
+  }
+}
+
+class QueueScreen extends StatefulWidget {
+  const QueueScreen({super.key, required this.roomId});
+
+  final String roomId;
+
+  @override
+  State<QueueScreen> createState() => _QueueScreenState();
+}
+
+class _QueueScreenState extends State<QueueScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Center (
+        child: Column(
+          children: [
+            Text('Current Queue'),
           ],
       )
     ),

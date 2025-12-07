@@ -258,7 +258,6 @@ class _GroupListScreenState extends State<GroupListScreen> {
     ),
     );
   }
-  
 }
 
 class PartyListScreen extends StatefulWidget {

@@ -31,6 +31,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appAuthRedirectScheme"] = "vibzcheck"
+ 
+
     }
 
     buildTypes {
@@ -41,7 +44,9 @@ android {
         }
     }
 }
-
+dependencies {
+    implementation("androidx.browser:browser:1.8.0")
+}
 flutter {
     source = "../.."
 }

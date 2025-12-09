@@ -1,4 +1,3 @@
-import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SpotifyAuthService {
@@ -21,8 +20,6 @@ class SpotifyAuthService {
   factory SpotifyAuthService() => _instance;
   SpotifyAuthService._internal();
 
-  final FlutterAppAuth _appAuth = FlutterAppAuth();
-
   bool get isAuthenticated =>
       _accessToken != null && !_isTokenExpired();
 
@@ -37,26 +34,10 @@ class SpotifyAuthService {
 
   Future<bool> authenticate() async {
     try {
-      final result = await _appAuth.authorizeAndExchangeCode(
-        AuthorizationTokenRequest(
-          clientId,
-          redirectUri,
-          scopes: scopes,
-          serviceConfiguration: AuthorizationServiceConfiguration(
-            authorizationEndpoint: 'https://accounts.spotify.com/authorize',
-            tokenEndpoint: 'https://accounts.spotify.com/api/token',
-          ),
-        ),
-      );
-
-      if (result == null) return false;
-
-      _accessToken = result.accessToken;
-      _refreshToken = result.refreshToken;
-      _tokenExpiry = result.accessTokenExpirationDateTime;
-
-      await _saveTokens();
-      return true;
+      // flutter_appauth is not available; OAuth would need to be handled differently
+      // For now, return false to indicate authentication is not available
+      print('[SpotifyAuthService] OAuth authentication not available');
+      return false;
     } catch (e) {
       print('Spotify authentication error: $e');
       return false;
@@ -77,24 +58,8 @@ class SpotifyAuthService {
     if (_refreshToken == null) return;
 
     try {
-      final result = await _appAuth.token(
-        TokenRequest(
-          clientId,
-          redirectUri,
-          refreshToken: _refreshToken,
-          serviceConfiguration: AuthorizationServiceConfiguration(
-            authorizationEndpoint: 'https://accounts.spotify.com/authorize',
-            tokenEndpoint: 'https://accounts.spotify.com/api/token',
-          ),
-        ),
-      );
-
-      if (result != null) {
-        _accessToken = result.accessToken;
-        _refreshToken = result.refreshToken ?? _refreshToken;
-        _tokenExpiry = result.accessTokenExpirationDateTime;
-        await _saveTokens();
-      }
+      // flutter_appauth is not available; token refresh would need custom implementation
+      print('[SpotifyAuthService] Token refresh not available without OAuth');
     } catch (e) {
       print('Failed to refresh token: $e');
     }
@@ -111,21 +76,6 @@ class SpotifyAuthService {
     await prefs.remove('spotify_token_expiry');
   }
 
-  Future<void> _saveTokens() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    if (_accessToken != null) {
-      await prefs.setString('spotify_access_token', _accessToken!);
-    }
-    if (_refreshToken != null) {
-      await prefs.setString('spotify_refresh_token', _refreshToken!);
-    }
-    if (_tokenExpiry != null) {
-      await prefs.setString(
-          'spotify_token_expiry', _tokenExpiry!.toIso8601String());
-    }
-  }
-
   Future<void> _loadTokens() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -136,5 +86,7 @@ class SpotifyAuthService {
     if (expiryString != null) {
       _tokenExpiry = DateTime.parse(expiryString);
     }
+    
+    print('[SpotifyAuthService] Loaded tokens - Access: ${_accessToken != null}, Refresh: ${_refreshToken != null}, Expiry: $_tokenExpiry');
   }
 }

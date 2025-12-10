@@ -471,26 +471,305 @@ class QueueScreen extends StatefulWidget {
 }
 
 class _QueueScreenState extends State<QueueScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+  String? _accessToken;
+  DateTime? _tokenExpiry;
+
+  @override
+  void initState() {
+    super.initState();
+    _getAccessToken();
+  }
+
+  Future<void> _getAccessToken() async {
+    try {
+      final credentials = base64.encode(utf8.encode('$clientid:$secretClient'));
+      final response = await http.post(
+        Uri.parse('https://accounts.spotify.com/api/token'),
+        headers: {
+          'Authorization': 'Basic $credentials',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: {'grant_type': 'client_credentials'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _accessToken = data['access_token'];
+          _tokenExpiry = DateTime.now().add(Duration(seconds: data['expires_in'] ?? 3600));
+        });
+      }
+    } catch (e) {
+      print('Error getting access token: $e');
+    }
+  }
+
+  Future<void> _searchSongs(String query) async {
+    if (query.isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+
+    setState(() => _isSearching = true);
+
+    try {
+      if (_accessToken == null || (_tokenExpiry != null && DateTime.now().isAfter(_tokenExpiry!))) {
+        await _getAccessToken();
+      }
+
+      if (_accessToken == null) {
+        throw Exception('Failed to obtain Spotify access token');
+      }
+
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/search').replace(
+          queryParameters: {
+            'q': query,
+            'type': 'track',
+            'limit': '20',
+          },
+        ),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final tracks = data['tracks']['items'] as List;
+
+        setState(() {
+          _searchResults = tracks.map((track) {
+            return {
+              'name': track['name'] ?? 'Unknown',
+              'artist': (track['artists'] as List?)?.isNotEmpty == true
+                  ? track['artists'][0]['name'] ?? 'Unknown Artist'
+                  : 'Unknown Artist',
+              'uri': track['uri'] ?? '',
+              'previewUrl': track['preview_url'],
+              'imageUrl': (track['album']['images'] as List?)?.isNotEmpty == true
+                  ? track['album']['images'][0]['url']
+                  : null,
+            };
+          }).toList();
+        });
+      } else if (response.statusCode == 401) {
+        await _getAccessToken();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Token refreshed - try searching again')),
+        );
+      }
+    } catch (e) {
+      print('Search error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error searching songs: $e')),
+      );
+    } finally {
+      setState(() => _isSearching = false);
+    }
+  }
+
+  Future<void> _addToQueue(Map<String, dynamic> track) async {
+    try {
+      String userId = FirebaseAuth.instance.currentUser!.uid;
+      
+      await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(widget.roomId)
+          .collection('queue')
+          .add({
+        'name': track['name'],
+        'artist': track['artist'],
+        'uri': track['uri'],
+        'imageUrl': track['imageUrl'],
+        'previewUrl': track['previewUrl'],
+        'addedBy': userId,
+        'timestamp': Timestamp.now(),
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Added "${track['name']}" to queue')),
+      );
+    } catch (e) {
+      print('Error adding to queue: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to add song to queue')),
+      );
+    }
+  }
+
+ void _showSearchDialog() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text('Add Song to Queue'),
+            content: Container(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search for a song...',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onChanged: (query) async {
+                      await _searchSongs(query);
+                      setDialogState(() {});
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  if (_isSearching)
+                    CircularProgressIndicator()
+                  else if (_searchResults.isNotEmpty)
+                    Container(
+                      height: 300,
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _searchResults.length,
+                        itemBuilder: (context, index) {
+                          final track = _searchResults[index];
+                          return ListTile(
+                            leading: track['imageUrl'] != null
+                                ? Image.network(
+                                    track['imageUrl'],
+                                    width: 50,
+                                    height: 50,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Icon(Icons.music_note, size: 50),
+                            title: Text(track['name']),
+                            subtitle: Text(track['artist']),
+                            onTap: () async {
+                              await _addToQueue(track);
+                              Navigator.of(context).pop();
+                              setState(() {
+                                _searchResults = [];
+                                _searchController.clear();
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    _searchResults = [];
+                    _searchController.clear();
+                  });
+                },
+                child: Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      child: Center (
+      child: Center(
         child: Column(
           children: [
-            Text('Current Queue'),
+            Padding(padding: const EdgeInsets.all(10.0)),
+            Text('Your Queue'),
+            Padding(padding: const EdgeInsets.all(18.0)),
             FloatingActionButton(
               onPressed: () {
-                // Add song to queue
+                _showSearchDialog();
               },
+              
               child: Icon(Icons.add),
             ),
+            SizedBox(height: 16),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('lobbies')
+                  .doc(widget.roomId)
+                  .collection('queue')
+                  .orderBy('timestamp', descending: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text('Error: ${snapshot.error}');
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return CircularProgressIndicator();
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.all(25.0),
+                    child: Text(''),
+                  );
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    var queueDoc = snapshot.data!.docs[index];
+                    Map<String, dynamic> song = queueDoc.data() as Map<String, dynamic>;
+                    
+                    return Card(
+                      
+                      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                      child: ListTile(
+                        leading: song['imageUrl'] != null
+                            ? Image.network(
+                                song['imageUrl'],
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover,
+                              )
+                            : Icon(Icons.music_note, size: 50),
+                        title: Text(song['name'] ?? 'Unknown'),
+                        subtitle: Text(song['artist'] ?? 'Unknown Artist'),
+                        trailing: IconButton(
+                          icon: Icon(Icons.delete, color: Colors.deepPurple),
+                          onPressed: () async {
+                            await queueDoc.reference.delete();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Removed from queue')),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
-      )
-    ),
+        ),
+      ),
     );
   }
 }
-
 class ChatScreen extends StatefulWidget {
 
   final String roomId;

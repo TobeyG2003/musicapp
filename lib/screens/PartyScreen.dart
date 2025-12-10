@@ -635,7 +635,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       style: TextStyle(
                                         fontSize: 12.0,
                                         fontWeight: FontWeight.bold,
-                                        color: Colors.grey[700],
+                                        color: isCurrentUser ? Colors.blue : Color.fromARGB(255, 131, 53, 233),
                                       ),
                                     ),
                                     if (isCurrentUser) ...[
@@ -666,7 +666,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 Container(
                                   padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                   decoration: BoxDecoration(
-                                    color: isCurrentUser ? Colors.blue[100] : Colors.grey[300],
+                                    color: isCurrentUser ? const Color.fromARGB(255, 133, 39, 176) : const Color.fromARGB(255, 98, 39, 176),
                                     borderRadius: BorderRadius.circular(12.0),
                                   ),
                                   child: Text(
@@ -696,7 +696,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: const Color.fromARGB(255, 52, 52, 52),
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.5),
@@ -713,6 +713,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _messageController,
                     decoration: InputDecoration(
                       hintText: 'Type a message...',
+                      hintStyle: TextStyle(color: Colors.white54),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(25.0),
                       ),
@@ -728,7 +729,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 SizedBox(width: 8.0),
                 CircleAvatar(
-                  backgroundColor: Theme.of(context).primaryColor,
+                  backgroundColor: const Color.fromARGB(255, 131, 53, 233),
                   child: IconButton(
                     icon: Icon(Icons.send, color: Colors.white),
                     onPressed: _sendMessage,

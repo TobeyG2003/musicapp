@@ -23,7 +23,17 @@ class _SplashState extends State<Splash> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Text('Welcome to the Music App', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+            Text('Welcome to Vibcheckz', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+            Text('A collaborative music experience', style: TextStyle(fontSize: 18, fontStyle: FontStyle.italic)),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+            Icon(Icons.equalizer, size: 100, color: Colors.green),
+            Icon(Icons.music_note, size: 100, color: Color.fromARGB(255, 98, 39, 176),),
+            Icon(Icons.graphic_eq, size: 100, color: Colors.green),
+              ],
+            ),
             SizedBox(height: 20),
             Text('Join in on the good vibes!', style: TextStyle(fontSize: 18)),
             SizedBox(height: 40),
@@ -48,6 +58,8 @@ class _SplashState extends State<Splash> {
               },
               child: Text('Sign Up'),
             ),
+            SizedBox(height: 40),
+            Text('An experience powered by Spotify', style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic, color: Colors.green)),
           ],
         ),
       ),

@@ -118,6 +118,7 @@ class _SignupState extends State<Signup> {
                         return null;
                       },
                     ),
+                    SizedBox(height: 10),
                     TextFormField(
                       controller: _firstNameController,
                       decoration: InputDecoration(

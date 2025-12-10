@@ -181,7 +181,9 @@ class _GroupListScreenState extends State<GroupListScreen> {
       child: Center (
         child: Column(
           children: [
-            Text('Connect With Friends'),
+            SizedBox(height: 20),
+            Text('Connect With Friends', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),),
+            SizedBox(height: 10),
             Form(
               key: _formKey,
               child: TextFormField(
@@ -195,6 +197,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
                 },
               ),
             ),
+            SizedBox(height: 10),
             ElevatedButton(
               onPressed: () async {
                 if (_formKey.currentState!.validate()) {
@@ -215,14 +218,15 @@ class _GroupListScreenState extends State<GroupListScreen> {
               },
               child: Text('Join a Party'),
             ),
-            Text('OR'),
+            Text('- OR -'),
             ElevatedButton(
               onPressed: () {
                 showRoomDialogue(context);
               },
               child: Text('Host a Party'),
             ),
-            Text('Or Make Some New Ones'),
+            SizedBox(height: 20),
+            Text('Or Make Some New Ones', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),),
             StreamBuilder(
               stream: FirebaseFirestore.instance.collection('lobbies').snapshots(),
               builder: (context, snapshot) {
@@ -239,16 +243,12 @@ class _GroupListScreenState extends State<GroupListScreen> {
                     if (lobby['visibility'] != 'public') {
                       return SizedBox.shrink();
                     }
-                    return ListTile(
-                      title: Text(lobby['lobbyName'] ?? 'No Name'),
-                      subtitle: Text('Visibility: ${lobby['visibility']}'),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => Partyscreen(roomId: lobby.id)),
-                          );
-                      },
-                    );
+                    return lobbycard(lobby: {
+                      'id': lobby.id,
+                      'lobbyName': lobby['lobbyName'],
+                      'visibility': lobby['visibility'],
+                      'voting': lobby['voting'],
+                    });
                   },
                 );
               },
@@ -332,3 +332,45 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
   }
 }
 
+class lobbycard extends StatefulWidget {
+  const lobbycard({super.key, required this.lobby});
+
+  final Map<String, dynamic> lobby;
+
+  @override
+  State<lobbycard> createState() => _lobbycardState();
+}
+
+class _lobbycardState extends State<lobbycard> {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => Partyscreen(roomId: widget.lobby['id'])),
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Color.fromARGB(255, 131, 53, 233)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      margin: EdgeInsets.all(8),
+      padding: EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.lobby['lobbyName'] ?? 'No Name',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color.fromARGB(255, 131, 53, 233)),
+          ),
+          SizedBox(height: 8),
+          Text('Visibility: ${widget.lobby['visibility']}'),
+          Text('Voting: ${widget.lobby['voting'] ? "Enabled" : "Disabled"}'),
+        ],
+      ),
+    ),
+    );
+  }
+}

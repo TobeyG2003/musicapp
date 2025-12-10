@@ -18,7 +18,7 @@ class appbarDrawer extends StatelessWidget {
         child: ListView(
           padding: EdgeInsets.zero,
           children: <Widget>[
-            const DrawerHeader(child: Text('Navigation', style: TextStyle(color: Colors.white, fontSize: 50)), 
+            const DrawerHeader(child: Text('Navigation', style: TextStyle(color: Colors.white, fontSize: 42)), 
             decoration: BoxDecoration(color: Color.fromARGB(255, 98, 39, 176)),),
             ListTile(
               title: const Text('Group List', style: TextStyle(color: Colors.white, fontSize: 25)),
@@ -188,14 +188,12 @@ class _profilescreenState extends State<profilescreen> {
   Widget build(BuildContext context) {
     if (_isLoadingData) {
       return Scaffold(
-        backgroundColor: Colors.white,
         appBar: AppBar(title: Text('Profile Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(title: Text('Profile Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
       body: Center(
         child: Column(
@@ -423,7 +421,6 @@ class _settingsscreenState extends State<settingsscreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(title: Text('Settings Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
       body: Center(
         child: Column(

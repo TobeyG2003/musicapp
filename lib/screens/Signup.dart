@@ -62,6 +62,14 @@ class _SignupState extends State<Signup> {
         'imageurl': null,
         'signupdate': Timestamp.fromDate(DateTime.now()),
       });
+      await FirebaseFirestore.instance.collection('users').doc(userId).collection('history').doc('test').set({
+      'test': 'test',
+      'timestamp': Timestamp.fromDate(DateTime.now()),
+      });
+      await FirebaseFirestore.instance.collection('users').doc(userId).collection('parties').doc('test').set({
+      'test': 'test',
+      'timestamp': Timestamp.fromDate(DateTime.now()),
+      });
       print('User successfully added to Firestore');
     } catch (e) {
       print('Error adding user to Firestore: $e');

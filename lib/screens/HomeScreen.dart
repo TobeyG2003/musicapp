@@ -29,7 +29,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -53,6 +53,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.group), label: 'Parties'),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Your History'),
         ],
       ),
       body: TabBarView(
@@ -60,6 +61,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           GroupListScreen(),
           PartyListScreen(),
+          SongHistoryScreen(),
         ]
       ),
     );
@@ -94,7 +96,8 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
       return StatefulBuilder(
         builder: (BuildContext context, StateSetter setState) {
           return AlertDialog(
-            title: Text('Create a Room'),
+            backgroundColor: const Color.fromARGB(255, 39, 39, 39),
+            title: Text('Create a Room', style: TextStyle(color: Colors.white),),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
@@ -111,13 +114,14 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
                     },
                   ),
                 ),
-                
+                SizedBox(height: 20),
                 DropdownButtonFormField<String>(
-                  decoration: InputDecoration(labelText: 'Visibility'),
+                  dropdownColor: const Color.fromARGB(255, 39, 39, 39),
+                  decoration: InputDecoration(labelText: 'Visibility',),
                   items: <String>['public', 'private'].map((String value) {
                     return DropdownMenuItem<String>(
                       value: value,
-                      child: Text(value),
+                      child: Text(value, style: TextStyle(color: Colors.white),)
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
@@ -125,7 +129,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
                   },
                 ),
                 CheckboxListTile(
-                  title: Text('Enable Voting'),
+                  title: Text('Enable Voting', style: TextStyle(color: Colors.white),),
                   value: isVoting,
                   onChanged: (bool? value) {
                     setState(() {
@@ -210,6 +214,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
                     );
                     return;
                   }
+                  await joinPartyForCurrentUser(code.toUpperCase());
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => Partyscreen(roomId: code.toUpperCase())),
@@ -274,16 +279,103 @@ class _PartyListScreenState extends State<PartyListScreen> {
       child: Center (
         child: Column(
           children: [
-            Text('Your Past Parties'),
+            SizedBox(height: 20),
+            Text('Your Past Parties', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),),
+            StreamBuilder(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(_auth.currentUser?.uid)
+                  .collection('parties')
+                  .orderBy('joinedAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return CircularProgressIndicator();
+                }
+                final parties = snapshot.data!.docs;
+                // Filter out sample documents (id 'test' or 'sample')
+                final realParties = parties.where((p) => p.id != 'test' && p.id != 'sample').toList();
+                if (realParties.isEmpty) {
+                  return Text('You have not joined any parties yet.');
+                }
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: realParties.length,
+                  itemBuilder: (context, index) {
+                    final party = realParties[index];
+                    return FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance
+                          .collection('lobbies')
+                          .doc(party.id)
+                          .get(),
+                      builder: (context, lobbySnapshot) {
+                        if (!lobbySnapshot.hasData) {
+                          return SizedBox.shrink();
+                        }
+                        if (!lobbySnapshot.data!.exists) {
+                          return SizedBox.shrink();
+                        }
+                        final lobbyData = lobbySnapshot.data!;
+                        return lobbycard(
+                          lobby: {
+                            'id': party.id,
+                            'lobbyName': lobbyData['lobbyName'],
+                            'visibility': lobbyData['visibility'],
+                            'voting': lobbyData['voting'],
+                          },
+                          onDelete: () async {
+                            final String? uid = _auth.currentUser?.uid;
+                            if (uid == null) return;
+                            try {
+                              await FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(uid)
+                                  .collection('parties')
+                                  .doc(party.id)
+                                  .delete();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Removed from history')),
+                              );
+                            } catch (e) {
+                              print('Error removing party from history: $e');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to remove from history')),
+                              );
+                            }
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
           ],
       )
     ),
     );
   }
 }
+class SongHistoryScreen extends StatefulWidget {
+  const SongHistoryScreen({super.key});
 
-void hostParty() {
-
+  @override
+  State<SongHistoryScreen> createState() => _SongHistoryScreenState();
+}
+class _SongHistoryScreenState extends State<SongHistoryScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Center (
+        child: Column(
+          children: [
+            Text('Your Song History'),
+          ],
+      )
+    ),
+    );
+  }
 }
 
 String generateRandomCode() {
@@ -314,7 +406,7 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
       'lobbyName': lobbyName,
       'createdAt': FieldValue.serverTimestamp(),
       'voting': voting,
-      'currentSong': null, //to be used later maybe?
+      'currentSong': null,
     });
 
     await docRef.collection('messages').add({
@@ -325,6 +417,11 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
       'test': 'test',
     });
 
+    await docRef.collection('queue').add({
+      'test': 'test',
+    });
+
+    joinPartyForCurrentUser(lobbyCode);
     return lobbyCode;
   } catch (e) {
     print("Error creating lobby: $e");
@@ -333,9 +430,14 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
 }
 
 class lobbycard extends StatefulWidget {
-  const lobbycard({super.key, required this.lobby});
+  const lobbycard({
+    super.key,
+    required this.lobby,
+    this.onDelete,
+  });
 
   final Map<String, dynamic> lobby;
+  final VoidCallback? onDelete;
 
   @override
   State<lobbycard> createState() => _lobbycardState();
@@ -345,7 +447,8 @@ class _lobbycardState extends State<lobbycard> {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {
+      onTap: () async {
+        await joinPartyForCurrentUser(widget.lobby['id']);
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => Partyscreen(roomId: widget.lobby['id'])),
@@ -361,9 +464,21 @@ class _lobbycardState extends State<lobbycard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.lobby['lobbyName'] ?? 'No Name',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color.fromARGB(255, 131, 53, 233)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  widget.lobby['lobbyName'] ?? 'No Name',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color.fromARGB(255, 131, 53, 233)),
+                ),
+              ),
+              if (widget.onDelete != null)
+                IconButton(
+                  icon: Icon(Icons.delete, color: Colors.red),
+                  onPressed: widget.onDelete,
+                ),
+            ],
           ),
           SizedBox(height: 8),
           Text('Visibility: ${widget.lobby['visibility']}'),
@@ -372,5 +487,27 @@ class _lobbycardState extends State<lobbycard> {
       ),
     ),
     );
+  }
+}
+
+Future<void> joinPartyForCurrentUser(String lobbyId) async {
+  final String? uid = _auth.currentUser?.uid;
+  if (uid == null) return;
+
+  final userPartyRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('parties')
+      .doc(lobbyId);
+
+  final userPartySnapshot = await userPartyRef.get();
+  if (!userPartySnapshot.exists) {
+    await userPartyRef.set({
+      'joinedAt': FieldValue.serverTimestamp(),
+    });
+  } else {
+    await userPartyRef.update({
+      'joinedAt': FieldValue.serverTimestamp(),
+    });
   }
 }

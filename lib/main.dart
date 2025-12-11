@@ -129,7 +129,7 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         fontFamily: GoogleFonts.poppins().fontFamily,
       ),
-      home: const Splash(title: 'Music App'),
+      home: const Splash(title: 'Vibcheckz'),
     );
   }
 }

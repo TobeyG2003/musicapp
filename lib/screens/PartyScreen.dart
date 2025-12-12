@@ -58,10 +58,10 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
       body: TabBarView(
         controller: _tabController,
         children: [
-          SongScreen(),
+          SongScreen(roomId: widget.roomId),
           QueueScreen(roomId: widget.roomId),
           ChatScreen(roomId: widget.roomId),
-          HistoryScreen(),
+          HistoryScreen(roomId: widget.roomId),
         ]
       ),
     );
@@ -69,7 +69,9 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
 }
 
 class SongScreen extends StatefulWidget {
-  const SongScreen({super.key});
+  final String roomId;
+  
+  const SongScreen({super.key, required this.roomId});
 
   @override
   State<SongScreen> createState() => _SongScreenState();
@@ -229,6 +231,12 @@ class _SongScreenState extends State<SongScreen> {
         setState(() {
           _currentTrackName = name;
         });
+        await _addToHistory({
+          'name': name,
+          'artist': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+          'uri': uri,
+          'imageUrl': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+        }, widget.roomId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Playing in Spotify app: $name')),
         );
@@ -242,6 +250,12 @@ class _SongScreenState extends State<SongScreen> {
         setState(() {
           _currentTrackName = name;
         });
+        await _addToHistory({
+          'name': name,
+          'artist': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+          'uri': uri,
+          'imageUrl': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+        }, widget.roomId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Opening in Spotify Web: $name')),
         );
@@ -287,6 +301,12 @@ class _SongScreenState extends State<SongScreen> {
       setState(() {
         _currentTrackName = '$name (30s Preview)';
       });
+      await _addToHistory({
+        'name': name.replaceAll(' (30s Preview)', ''),
+        'artist': 'Unknown',
+        'uri': '',
+        'imageUrl': null,
+      }, widget.roomId);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Playing preview: $name')),
       );
@@ -297,7 +317,24 @@ class _SongScreenState extends State<SongScreen> {
       );
     }
   }
-
+  Future<void> _addToHistory(Map<String, dynamic> songData, String roomId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(roomId)
+          .collection('history')
+          .add({
+        'name': songData['name'],
+        'artist': songData['artist'],
+        'uri': songData['uri'],
+        'imageUrl': songData['imageUrl'],
+        'playedAt': Timestamp.now(),
+      });
+      print('Added to history: ${songData['name']}');
+    } catch (e) {
+      print('Error adding to history: $e');
+    }
+  }
   @override
   void dispose() {
     _spotifyWebService.removeTokenChangeListener(_onSpotifyTokenChanged);
@@ -694,8 +731,8 @@ class _QueueScreenState extends State<QueueScreen> {
         child: Column(
           children: [
             Padding(padding: const EdgeInsets.all(10.0)),
-            Text('Your Queue'),
-            Padding(padding: const EdgeInsets.all(18.0)),
+            Text('Your Queue', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Padding(padding: const EdgeInsets.all(10.0)),
             FloatingActionButton(
               onPressed: () {
                 _showSearchDialog();
@@ -1023,7 +1060,9 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  final String roomId;
+  
+  const HistoryScreen({super.key, required this.roomId});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -1033,13 +1072,97 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      child: Center (
+      child: Center(
         child: Column(
           children: [
-            Text('Your Past Songs'),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Your Past Songs',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('lobbies')
+                  .doc(widget.roomId)
+                  .collection('history')
+                  .orderBy('playedAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text('Error: ${snapshot.error}');
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return CircularProgressIndicator();
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      children: [
+                        Icon(Icons.history, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text('No songs played yet'),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    var historyDoc = snapshot.data!.docs[index];
+                    Map<String, dynamic> song = historyDoc.data() as Map<String, dynamic>;
+                    Timestamp playedAt = song['playedAt'] ?? Timestamp.now();
+                    
+                    return Card(
+                      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                      child: ListTile(
+                        leading: song['imageUrl'] != null
+                            ? Image.network(
+                                song['imageUrl'],
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover,
+                              )
+                            : Icon(Icons.music_note, size: 50),
+                        title: Text(song['name'] ?? 'Unknown'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(song['artist'] ?? 'Unknown Artist'),
+                            SizedBox(height: 4),
+                            Text(
+                              _formatTimestamp(playedAt),
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
-      )
-    ),
+        ),
+      ),
     );
+  }
+
+  String _formatTimestamp(Timestamp timestamp) {
+    DateTime dateTime = timestamp.toDate();
+    DateTime now = DateTime.now();
+    
+    if (dateTime.year == now.year && dateTime.month == now.month && dateTime.day == now.day) {
+      return 'Today at ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    } else {
+      return '${dateTime.month}/${dateTime.day} at ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    }
   }
 }

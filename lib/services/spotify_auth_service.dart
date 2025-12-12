@@ -34,8 +34,7 @@ class SpotifyAuthService {
 
   Future<bool> authenticate() async {
     try {
-      // flutter_appauth is not available; OAuth would need to be handled differently
-      // For now, return false to indicate authentication is not available
+      
       print('[SpotifyAuthService] OAuth authentication not available');
       return false;
     } catch (e) {
@@ -58,7 +57,6 @@ class SpotifyAuthService {
     if (_refreshToken == null) return;
 
     try {
-      // flutter_appauth is not available; token refresh would need custom implementation
       print('[SpotifyAuthService] Token refresh not available without OAuth');
     } catch (e) {
       print('Failed to refresh token: $e');

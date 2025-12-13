@@ -1130,6 +1130,37 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not play preview: $e')));
     }
   }
+  Future<void> _openInSpotify(String? uri, String name) async {
+    if (uri != null && uri.isNotEmpty) {
+      final Uri appUri = Uri.parse(uri);
+      try {
+        if (await canLaunchUrl(appUri)) {
+          await launchUrl(appUri);
+          return;
+        }
+      } catch (_) {}
+      if (uri.startsWith('spotify:track:')) {
+        final id = uri.split(':').last;
+        final web = Uri.parse('https://open.spotify.com/track/$id');
+        if (await canLaunchUrl(web)) {
+          await launchUrl(web, mode: LaunchMode.externalApplication);
+          return;
+        }
+      } else if (uri.contains('open.spotify.com')) {
+        final web = Uri.parse(uri);
+        if (await canLaunchUrl(web)) {
+          await launchUrl(web, mode: LaunchMode.externalApplication);
+          return;
+        }
+      }
+    }
+    final spotifyHome = Uri.parse('spotify:');
+    if (await canLaunchUrl(spotifyHome)) {
+      await launchUrl(spotifyHome);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open Spotify for $name')));
+  }
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -1204,12 +1235,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                           ],
                         ),
-                        trailing: IconButton(
-                          icon: Icon(
-                            (_isPlaying && _playingUrl == (song['preview_url'] ?? song['previewUrl'])) ? Icons.pause : Icons.play_arrow,
-                          ),
-                          onPressed: () => _playPausePreview(song['preview_url'] ?? song['previewUrl'], song['name'] ?? 'Unknown'),
-                        ),
+                        trailing: (song['preview_url'] ?? song['previewUrl']) != null
+                            ? IconButton(
+                                icon: Icon(
+                                  (_isPlaying && _playingUrl == (song['preview_url'] ?? song['previewUrl'])) ? Icons.pause : Icons.play_arrow,
+                                ),
+                                onPressed: () => _playPausePreview(song['preview_url'] ?? song['previewUrl'], song['name'] ?? 'Unknown'),
+                              )
+                            : IconButton(
+                                icon: Icon(Icons.open_in_new),
+                                onPressed: () => _openInSpotify(song['uri'] ?? song['spotify_uri'] ?? song['spotifyUri'], song['name'] ?? 'Unknown'),
+                              ),
                       ),
                     );
                   },

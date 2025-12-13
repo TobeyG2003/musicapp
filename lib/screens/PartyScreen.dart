@@ -10,8 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/spotify_web_playback_service.dart';
 import '../services/spotify_auth_service.dart';
 
-String clientid = "eecdb44badc44526a3fdf6bfe3b8308b";
-String secretClient = "977979869e7a48d9bbc8e1478c953ae3";
+String clientid = "a30ef1af177f422f98b50eace0648ba0";
+String secretClient = "7f8cc8e4b9194109a0d8f1a19c17da98";
 String currentsonguri = "";
 
 class Partyscreen extends StatefulWidget {
@@ -1318,7 +1318,7 @@ class _QueueScreenState extends State<QueueScreen> {
       print('Error fetching artist genres: $e');
     }
   }
-
+  
   Set<String> get _availableGenres {
     final genres = <String>{};
     for (var genreList in _trackGenres.values) {

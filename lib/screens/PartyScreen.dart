@@ -12,6 +12,8 @@ import '../services/spotify_auth_service.dart';
 
 String clientid = "eecdb44badc44526a3fdf6bfe3b8308b";
 String secretClient = "977979869e7a48d9bbc8e1478c953ae3";
+String currentsonguri = "";
+bool canvote = true;
 
 
 class Partyscreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class Partyscreen extends StatefulWidget {
 }
 
 class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
+      StreamSubscription<DocumentSnapshot>? _currentSongListener;
     StreamSubscription<QuerySnapshot>? _queueToVotesSubscription;
   late TabController _tabController;
   StreamSubscription<QuerySnapshot>? _queueSubscription;
@@ -34,9 +37,42 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _initializeCurrentSongUri();
     _tabController = TabController(length: 4, vsync: this);
     _spotifyAuth.initialize();
     _setupAutoplay();
+
+    // Listen for changes to currentSong in Firestore
+    _currentSongListener = FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists && doc.data() != null && doc.data() != "" && doc.data()!.containsKey('currentSong')) {
+        final newUri = doc['currentSong'] ?? "";
+        if (currentsonguri != newUri) {
+          setState(() {
+            currentsonguri = newUri;
+            canvote = true; // Allow voting again when song changes
+          });
+        }
+      }
+    });
+  }
+  Future<void> _initializeCurrentSongUri() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(widget.roomId)
+          .get();
+      if (doc.exists && doc.data() != null && doc.data()!.containsKey('currentSong')) {
+        setState(() {
+          currentsonguri = doc['currentSong'] ?? "";
+        });
+      }
+    } catch (e) {
+      print('Error fetching currentSong from Firestore: $e');
+    }
 
     // Listen to queue and sync top 3 to votes/song1-3
     _queueToVotesSubscription = FirebaseFirestore.instance
@@ -278,6 +314,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
   void dispose() {
     _stopAutoplay();
     _queueToVotesSubscription?.cancel();
+    _currentSongListener?.cancel();
     _tabController.dispose();
     super.dispose(); // end of autoplay feature
   }
@@ -330,6 +367,24 @@ class SongScreen extends StatefulWidget {
 }
 
 class _SongScreenState extends State<SongScreen> {
+    /// Returns the data from the document in the votes collection with the greatest number of votes
+    Future<Map<String, dynamic>?> _getTopSong() async {
+      try {
+        final votesSnapshot = await FirebaseFirestore.instance
+            .collection('lobbies')
+            .doc(widget.roomId)
+            .collection('votes')
+            .orderBy('votenum', descending: true)
+            .limit(1)
+            .get();
+        if (votesSnapshot.docs.isEmpty) return null;
+        final data = votesSnapshot.docs.first.data() as Map<String, dynamic>;
+        return data;
+      } catch (e) {
+        print('Error getting top song: $e');
+        return null;
+      }
+    }
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
   Map<String, List<String>> _trackGenres = {};
@@ -393,7 +448,9 @@ class _SongScreenState extends State<SongScreen> {
                     child: Column(
                       children: [
                         InkWell(
-                          onTap: data['name'] == null ? null : () async {
+                          onTap: (data['name'] == null || !canvote) ? null : () async {
+                            // Only allow voting if canvote is true
+                            canvote = false;
                             // Atomically increment vote count in Firestore
                             await votesRef.doc('song${i + 1}').update({
                               'votenum': FieldValue.increment(1),
@@ -438,11 +495,43 @@ class _SongScreenState extends State<SongScreen> {
             },
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurpleAccent,
+              ),
+              onPressed: () async {
+                var topsong = await _getTopSong();
+                if (topsong != null) {
+                  if (topsong['votenum'] == 0) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('No votes cast yet!'))
+                    );
+                    return;
+                  }
+                  _playSong(
+                    topsong['uri'],
+                    topsong['name'],
+                    topsong['previewUrl'],
+                    artist: topsong['artist'],
+                    imageUrl: topsong['imageUrl'],
+                  );
+                  FirebaseFirestore.instance
+                      .collection('lobbies')
+                      .doc(widget.roomId)
+                      .collection('queue')
+                      .doc(topsong['songid'])
+                      .delete();
+                }
+                Navigator.of(context).pop();
+              },
+              child: Text('Next Song', style: TextStyle(color: Colors.white)),
+            ),
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
               },
-              child: Text('No vote', style: TextStyle(color: Colors.white)),
+              child: Text('Close', style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -711,7 +800,7 @@ class _SongScreenState extends State<SongScreen> {
       print('Error fetching artist genres: $e');
     }
   }
-  Future<void> _playSong(String uri, String name, String? previewUrl) async {
+  Future<void> _playSong(String uri, String name, String? previewUrl, {String? artist, String? imageUrl}) async {
     print('Playing song: $name, uri: $uri');
     try {
       // On Android, Web Playback SDK doesn't work in webview
@@ -727,9 +816,9 @@ class _SongScreenState extends State<SongScreen> {
         });
         await _addToHistory({
           'name': name,
-          'artist': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+          'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
           'uri': uri,
-          'imageUrl': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+          'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
         }, widget.roomId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Playing in Spotify app: $name')),
@@ -746,9 +835,9 @@ class _SongScreenState extends State<SongScreen> {
         });
         await _addToHistory({
           'name': name,
-          'artist': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+          'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
           'uri': uri,
-          'imageUrl': _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+          'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
         }, widget.roomId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Opening in Spotify Web: $name')),
@@ -1037,7 +1126,13 @@ class _SongScreenState extends State<SongScreen> {
                 final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
                 
                 return GestureDetector(
-                  onTap: () => _playSong(track['uri'], track['name'], track['previewUrl']),
+                  onTap: () => _playSong(
+                    track['uri'],
+                    track['name'],
+                    track['previewUrl'],
+                    artist: track['artist'],
+                    imageUrl: track['imageUrl'],
+                  ),
                   child: Card(
                     margin: EdgeInsets.symmetric(vertical: 8),
                     child: Column(
@@ -1937,111 +2032,5 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } else {
       return '${dateTime.month}/${dateTime.day} at ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
     }
-  }
-
-  void showVotingDialog() {
-    final votesRef = FirebaseFirestore.instance
-        .collection('lobbies')
-        .doc(widget.roomId)
-        .collection('votes');
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color.fromARGB(255, 30, 30, 30),
-          title: Text('Voting', style: TextStyle(color: Colors.white)),
-          content: FutureBuilder<List<DocumentSnapshot>>(
-            future: Future.wait([
-              votesRef.doc('song1').get(),
-              votesRef.doc('song2').get(),
-              votesRef.doc('song3').get(),
-            ]),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return Center(child: CircularProgressIndicator());
-              }
-              final docs = snapshot.data!;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(3, (i) {
-                  final doc = docs[i];
-                  final data = doc.data() as Map<String, dynamic>?;
-                  if (data == null || data['name'] == null) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            color: Colors.grey[800],
-                            child: Icon(Icons.music_note, color: Colors.white, size: 40),
-                          ),
-                          SizedBox(height: 8),
-                          Text('No Song', style: TextStyle(color: Colors.white54)),
-                        ],
-                      ),
-                    );
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Column(
-                      children: [
-                        InkWell(
-                          onTap: data['name'] == null ? null : () async {
-                            // Atomically increment vote count in Firestore
-                            await votesRef.doc('song${i + 1}').update({
-                              'votenum': FieldValue.increment(1),
-                            });
-                            Navigator.of(context).pop();
-                          },
-                          child: data['imageUrl'] != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    data['imageUrl'],
-                                    width: 80,
-                                    height: 80,
-                                    fit: BoxFit.cover,
-                                  ),
-                                )
-                              : Container(
-                                  width: 80,
-                                  height: 80,
-                                  color: Colors.grey[800],
-                                  child: Icon(Icons.music_note, color: Colors.white, size: 40),
-                                ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          data['name'] ?? '',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
-                        ),
-                        Text(
-                          data['artist'] ?? '',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                          textAlign: TextAlign.center,
-                        ),
-                        SizedBox(height: 4),
-                        Text('Votes: ${data['votenum'] ?? 0}', style: TextStyle(color: Colors.deepPurpleAccent)),
-                      ],
-                    ),
-                  );
-                }),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('No vote', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
-    );
   }
 }

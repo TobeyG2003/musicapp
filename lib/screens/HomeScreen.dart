@@ -8,6 +8,7 @@ import '../firebase_options.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'drawer.dart';
 import 'dart:math';
 import 'PartyScreen.dart';
@@ -364,6 +365,55 @@ class SongHistoryScreen extends StatefulWidget {
   State<SongHistoryScreen> createState() => _SongHistoryScreenState();
 }
 class _SongHistoryScreenState extends State<SongHistoryScreen> {
+  late AudioPlayer _audioPlayer;
+  bool _isPlaying = false;
+  String? _playingUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer = AudioPlayer();
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      setState(() {
+        _isPlaying = state == PlayerState.playing;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playPausePreview(String? previewUrl, String name) async {
+    if (previewUrl == null || previewUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No preview available for $name')));
+      return;
+    }
+
+    try {
+      if (_playingUrl == previewUrl && _isPlaying) {
+        await _audioPlayer.stop();
+        setState(() {
+          _playingUrl = null;
+        });
+        return;
+      }
+
+      if (_isPlaying) {
+        await _audioPlayer.stop();
+      }
+
+      await _audioPlayer.play(UrlSource(previewUrl));
+      setState(() {
+        _playingUrl = previewUrl;
+      });
+    } catch (e) {
+      print('Preview play error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not play preview: $e')));
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -437,6 +487,12 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
                               style: TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ],
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(
+                            (_isPlaying && _playingUrl == (song['preview_url'] ?? song['previewUrl'])) ? Icons.pause : Icons.play_arrow,
+                          ),
+                          onPressed: () => _playPausePreview(song['preview_url'] ?? song['previewUrl'], song['name'] ?? 'Unknown'),
                         ),
                       ),
                     );

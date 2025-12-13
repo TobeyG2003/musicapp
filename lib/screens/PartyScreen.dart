@@ -332,7 +332,11 @@ class SongScreen extends StatefulWidget {
 class _SongScreenState extends State<SongScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
-  bool _isSearching = false;
+  Map<String, List<String>> _trackGenres = {};
+  Map<String, Map<String, dynamic>> _trackMoods = {};
+  Set<String> _selectedGenres = {};
+  Set<String> _selectedMoods = {};
+    bool _isSearching = false;
   String? _currentTrackName;
   String? _accessToken;
   DateTime? _tokenExpiry;
@@ -507,6 +511,15 @@ class _SongScreenState extends State<SongScreen> {
       return;
     }
 
+    setState(() {
+      _searchResults.clear();
+      _trackGenres.clear();
+      _trackMoods.clear();
+      _selectedGenres.clear();
+      _selectedMoods.clear();
+    });
+
+
     setState(() => _isSearching = true);
 
     try {
@@ -543,7 +556,11 @@ class _SongScreenState extends State<SongScreen> {
               'artist': (track['artists'] as List?)?.isNotEmpty == true
                   ? track['artists'][0]['name'] ?? 'Unknown Artist'
                   : 'Unknown Artist',
+              'artistId': (track['artists'] as List?)?.isNotEmpty == true
+                  ? track['artists'][0]['id']
+                  : null,
               'uri': track['uri'] ?? '',
+              'id': track['id'],
               'previewUrl': track['preview_url'],
               'imageUrl': (track['album']['images'] as List?)?.isNotEmpty == true
                   ? track['album']['images'][0]['url']
@@ -551,8 +568,10 @@ class _SongScreenState extends State<SongScreen> {
             };
           }).toList();
         });
-
+      
+        await _enrichTracksWithMetadata();
         print('Found ${_searchResults.length} songs');
+
       } else if (response.statusCode == 401) {
         print('Unauthorized - attempting to refresh token');
         await _getAccessToken();
@@ -574,7 +593,124 @@ class _SongScreenState extends State<SongScreen> {
       setState(() => _isSearching = false);
     }
   }
+  Future<void> _enrichTracksWithMetadata() async {
+    if (_accessToken == null || _searchResults.isEmpty) return;
 
+    try {
+      // Get track IDs
+      final trackIds = _searchResults
+          .where((t) => t['id'] != null)
+          .map((t) => t['id'] as String)
+          .toList();
+      
+      if (trackIds.isEmpty) return;
+
+      // Fetch audio features for mood analysis
+      await _fetchAudioFeatures(trackIds);
+      
+      // Fetch genres from artists
+      for (var track in _searchResults) {
+        if (track['artistId'] != null) {
+          await _fetchArtistGenres(track['artistId'], track['id']);
+        }
+      }
+      
+      setState(() {});
+    } catch (e) {
+      print('Error enriching tracks: $e');
+    }
+  }
+
+  Future<void> _fetchAudioFeatures(List<String> trackIds) async {
+    try {
+      // Spotify allows up to 100 IDs per request
+      final batches = <List<String>>[];
+      for (var i = 0; i < trackIds.length; i += 100) {
+        batches.add(trackIds.sublist(
+          i, 
+          i + 100 > trackIds.length ? trackIds.length : i + 100
+        ));
+      }
+
+      for (var batch in batches) {
+        final response = await http.get(
+          Uri.parse('https://api.spotify.com/v1/audio-features').replace(
+            queryParameters: {'ids': batch.join(',')},
+          ),
+          headers: {'Authorization': 'Bearer $_accessToken'},
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final features = data['audio_features'] as List;
+          
+          for (var feature in features) {
+            if (feature == null) continue;
+            
+            final trackId = feature['id'];
+            final moods = _analyzeMood(feature);
+            _trackMoods[trackId] = moods;
+          }
+        }
+      }
+    } catch (e) {
+      print('Error fetching audio features: $e');
+    }
+  }
+
+  Map<String, dynamic> _analyzeMood(Map<String, dynamic> features) {
+    final valence = features['valence'] ?? 0.5; // measurements for mood
+    final energy = features['energy'] ?? 0.5; 
+    final danceability = features['danceability'] ?? 0.5;
+    final acousticness = features['acousticness'] ?? 0.5;
+    final tempo = features['tempo'] ?? 120.0;
+    
+    List<String> moods = [];
+    
+    // determine moods based on audio features
+    if (valence > 0.6 && energy > 0.6) {
+      moods.add('Happy');
+      moods.add('Energetic');
+    } else if (valence > 0.6 && energy < 0.4) {
+      moods.add('Chill');
+      moods.add('Peaceful');
+    } else if (valence < 0.4 && energy > 0.6) {
+      moods.add('Intense');
+      moods.add('Aggressive');
+    } else if (valence < 0.4 && energy < 0.4) {
+      moods.add('Sad');
+      moods.add('Melancholic');
+    }
+    
+    if (danceability > 0.7) moods.add('Danceable');
+    if (acousticness > 0.6) moods.add('Acoustic');
+    if (tempo > 140) moods.add('Upbeat');
+    if (energy > 0.8) moods.add('Powerful');
+    
+    return {
+      'moods': moods,
+      'valence': valence,
+      'energy': energy,
+      'danceability': danceability,
+    };
+  }
+
+  Future<void> _fetchArtistGenres(String artistId, String trackId) async { // getting genres, talk about this snippet
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/artists/$artistId'),
+        headers: {'Authorization': 'Bearer $_accessToken'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final genres = (data['genres'] as List?)?.cast<String>() ?? [];
+        _trackGenres[trackId] = genres;
+      }
+    } catch (e) {
+      print('Error fetching artist genres: $e');
+    }
+  }
   Future<void> _playSong(String uri, String name, String? previewUrl) async {
     print('Playing song: $name, uri: $uri');
     try {
@@ -635,6 +771,56 @@ class _SongScreenState extends State<SongScreen> {
       );
     }
   }
+  // helper for filtered results
+  List<Map<String, dynamic>> get _filteredResults {
+    if (_selectedGenres.isEmpty && _selectedMoods.isEmpty) {
+      return _searchResults;
+    }
+    
+    return _searchResults.where((track) {
+      final trackId = track['id'];
+      if (trackId == null) return false;
+      
+      // check genre filter
+      if (_selectedGenres.isNotEmpty) {
+        final genres = _trackGenres[trackId] ?? [];
+        final hasMatchingGenre = genres.any((g) => 
+          _selectedGenres.any((selected) => 
+            g.toLowerCase().contains(selected.toLowerCase())
+          )
+        );
+        if (!hasMatchingGenre) return false;
+      }
+      
+      // check mood filter
+      if (_selectedMoods.isNotEmpty) {
+        final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
+        final hasMatchingMood = moods.any((m) => _selectedMoods.contains(m));
+        if (!hasMatchingMood) return false;
+      }
+      
+      return true;
+    }).toList();
+  }
+
+  // get all available genres and moods from current results
+  Set<String> get _availableGenres {
+    final genres = <String>{};
+    for (var genreList in _trackGenres.values) {
+      genres.addAll(genreList);
+    }
+    return genres;
+  }
+
+  Set<String> get _availableMoods {
+    final moods = <String>{};
+    for (var moodData in _trackMoods.values) {
+      final trackMoods = moodData['moods'] as List<String>? ?? [];
+      moods.addAll(trackMoods);
+    }
+    return moods;
+  } // end of genres and moods
+
 
   Future<void> _authenticateWithSpotify() async {
     print('Attempting to authenticate with Spotify...');
@@ -826,47 +1012,172 @@ class _SongScreenState extends State<SongScreen> {
               onChanged: _searchSongs,
             ),
             SizedBox(height: 16),
+
+            if (_searchResults.isNotEmpty) ...[
+              _buildFilterSection(),
+              SizedBox(height: 16),
+          ],
             // Search results
-            if (_isSearching)
-              CircularProgressIndicator()
-            else if (_searchResults.isEmpty && _searchController.text.isNotEmpty)
-              Text('No songs found')
-            else if (_searchResults.isNotEmpty)
-              ListView.builder(
-                shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
-                itemCount: _searchResults.length,
-                itemBuilder: (context, index) {
-                  final track = _searchResults[index];
-                  return GestureDetector(
-                    onTap: () => _playSong(track['uri'], track['name'], track['previewUrl']),
-                    child: Card(
-                      margin: EdgeInsets.symmetric(vertical: 8),
-                      child: ListTile(
-                        leading: track['imageUrl'] != null
-                            ? Image.network(
-                                track['imageUrl'],
-                                width: 50,
-                                height: 50,
-                                fit: BoxFit.cover,
-                              )
-                            : Icon(Icons.music_note, size: 50),
-                        title: Text(track['name']),
-                        subtitle: Text(track['artist']),
-                        trailing: Icon(Icons.play_arrow),
-                      ),
+            // Search results
+          if (_isSearching)
+            CircularProgressIndicator()
+          else if (_filteredResults.isEmpty && _searchController.text.isNotEmpty)
+            Text(_searchResults.isEmpty 
+              ? 'No songs found' 
+              : 'No songs match selected filters')
+          else if (_filteredResults.isNotEmpty)
+            ListView.builder(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              itemCount: _filteredResults.length,
+              itemBuilder: (context, index) {
+                final track = _filteredResults[index];
+                final trackId = track['id'];
+                final genres = _trackGenres[trackId] ?? [];
+                final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
+                
+                return GestureDetector(
+                  onTap: () => _playSong(track['uri'], track['name'], track['previewUrl']),
+                  child: Card(
+                    margin: EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: track['imageUrl'] != null
+                              ? Image.network(
+                                  track['imageUrl'],
+                                  width: 50,
+                                  height: 50,
+                                  fit: BoxFit.cover,
+                                )
+                              : Icon(Icons.music_note, size: 50),
+                          title: Text(track['name']),
+                          subtitle: Text(track['artist']),
+                          trailing: Icon(Icons.play_arrow),
+                        ),
+                        // Add tags below the ListTile
+                        if (moods.isNotEmpty || genres.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                ...moods.take(3).map((mood) => Chip(
+                                  label: Text(mood, style: TextStyle(fontSize: 11)),
+                                  backgroundColor: Colors.deepPurple.withOpacity(0.2),
+                                  padding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                )),
+                                ...genres.take(2).map((genre) => Chip(
+                                  label: Text(genre, style: TextStyle(fontSize: 11)),
+                                  backgroundColor: Colors.deepPurple.withOpacity(0.2),
+                                  padding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                )),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
-                  );
-                },
-              )
-            else
-              Text('Search for songs to get started'),
+                  ),
+                );
+              },
+            )
+          else
+            Text('Search for songs to get started'),
           ],
         ),
       ),
     );
   }
+  Widget _buildFilterSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Filter by Vibe',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (_selectedGenres.isNotEmpty || _selectedMoods.isNotEmpty)
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _selectedGenres.clear();
+                    _selectedMoods.clear();
+                  });
+                },
+                child: Text('Clear All'),
+              ),
+          ],
+        ),
+        SizedBox(height: 8),
+        
+        // Mood filters
+        if (_availableMoods.isNotEmpty) ...[
+          Text('Moods:', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _availableMoods.map((mood) {
+              final isSelected = _selectedMoods.contains(mood);
+              return FilterChip(
+                label: Text(mood),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _selectedMoods.add(mood);
+                    } else {
+                      _selectedMoods.remove(mood);
+                    }
+                  });
+                },
+                selectedColor: Colors.deepPurple.withOpacity(0.3),
+                checkmarkColor: Colors.deepPurple,
+              );
+            }).toList(),
+          ),
+          SizedBox(height: 12),
+        ],
+        
+      // Genre filters
+        if (_availableGenres.isNotEmpty) ...[
+          Text('Genres:', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _availableGenres.take(10).map((genre) {
+              final isSelected = _selectedGenres.contains(genre);
+              return FilterChip(
+                label: Text(genre),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _selectedGenres.add(genre);
+                    } else {
+                      _selectedGenres.remove(genre);
+                    }
+                  });
+                },
+                selectedColor: Colors.blue.withOpacity(0.3),
+                checkmarkColor: Colors.blue,
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
 }
+  
+
 
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key, required this.roomId});
@@ -919,7 +1230,7 @@ class _QueueScreenState extends State<QueueScreen> {
       setState(() => _searchResults = []);
       return;
     }
-
+    
     setState(() => _isSearching = true);
 
     try {

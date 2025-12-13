@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'drawer.dart';
 import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/spotify_web_playback_service.dart';
+import '../services/spotify_auth_service.dart';
 
 String clientid = "eecdb44badc44526a3fdf6bfe3b8308b";
 String secretClient = "977979869e7a48d9bbc8e1478c953ae3";
@@ -23,11 +25,183 @@ class Partyscreen extends StatefulWidget {
 
 class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
   late TabController _tabController;
+  StreamSubscription<QuerySnapshot>? _queueSubscription;
+  String? _currentlyPlayingUri;
+  Timer? _playbackCheckTimer;
+  final SpotifyAuthService _spotifyAuth = SpotifyAuthService();
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _spotifyAuth.initialize();
+    _setupAutoplay();
+  } 
+  void _setupAutoplay() { // beginning of auto play feature
+    FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.exists) {
+        bool votingEnabled = snapshot.data()?['votingEnabled'] ?? false;
+        
+        if (!votingEnabled && _queueSubscription == null) {
+          _startAutoplay();
+        } else if (votingEnabled && _queueSubscription != null) {
+          _stopAutoplay();
+        }
+      }
+    });
+  }
+
+  void _startAutoplay() {
+    print('Autoplay started - monitoring queue and playback');
+    
+    // check playback status every 3 seconds
+    _playbackCheckTimer = Timer.periodic(Duration(seconds: 3), (timer) async {
+      await _checkAndPlayNext();
+    });
+  }
+
+  Future<void> _checkAndPlayNext() async {
+    try {
+      final accessToken = await _spotifyAuth.getValidAccessToken();
+      if (accessToken == null) return;
+
+      // check what's currently playing
+      final playbackResponse = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/player/currently-playing'),
+        headers: {'Authorization': 'Bearer $accessToken'},
+      );
+
+      bool isPlaying = false;
+      String? currentTrackUri;
+
+      if (playbackResponse.statusCode == 200) {
+        final playbackData = jsonDecode(playbackResponse.body);
+        isPlaying = playbackData['is_playing'] ?? false;
+        currentTrackUri = playbackData['item']?['uri'];
+      }
+
+      // if nothing is playing or song finished, play next from queue
+      if (!isPlaying || currentTrackUri == null) {
+        print('Nothing playing - checking queue for next song'); // messages for terminal to make sure it works
+        await _playNextFromQueue();
+      } else {
+        print('Currently playing: $currentTrackUri');
+        _currentlyPlayingUri = currentTrackUri;
+      }
+    } catch (e) {
+      print('Playback check error: $e');
+    }
+  }
+
+  Future<void> _playNextFromQueue() async {
+    try {
+      // get first song from queue
+      final queueSnapshot = await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(widget.roomId)
+          .collection('queue')
+          .orderBy('timestamp', descending: false)
+          .limit(1)
+          .get();
+
+      if (queueSnapshot.docs.isEmpty) {
+        print('Queue is empty');
+        _currentlyPlayingUri = null;
+        return;
+      }
+
+      var firstSong = queueSnapshot.docs.first;
+      Map<String, dynamic> song = firstSong.data() as Map<String, dynamic>;
+      String uri = song['uri'] ?? '';
+
+      if (uri.isEmpty) return;
+
+      // only play if it's different from what was playing
+      if (uri != _currentlyPlayingUri) {
+        print('Playing next from queue: ${song['name']}');
+        
+        bool success = await _playOnSpotify(uri, song);
+        
+        if (success) {
+          _currentlyPlayingUri = uri;
+          await _addToHistoryFromAutoplay(song, widget.roomId);
+          // remove from queue after starting playback
+          await firstSong.reference.delete();
+        }
+      }
+    } catch (e) {
+      print('Play next error: $e');
+    }
+  }
+
+  void _stopAutoplay() {
+    print('Autoplay stopped');
+    _playbackCheckTimer?.cancel();
+    _playbackCheckTimer = null;
+    _queueSubscription?.cancel();
+    _queueSubscription = null;
+  }
+
+  Future<bool> _playOnSpotify(String uri, Map<String, dynamic> song) async {
+    try {
+      final accessToken = await _spotifyAuth.getValidAccessToken();
+      if (accessToken == null) {
+        print('No access token available');
+        return false;
+      }
+
+      final response = await http.put(
+        Uri.parse('https://api.spotify.com/v1/me/player/play'),
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'uris': [uri]}),
+      );
+
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        print('✓ Playing: ${song['name']}');
+        return true;
+      } else if (response.statusCode == 404) {
+        print('✗ No active Spotify device found');
+        return false;
+      } else {
+        print('✗ Playback failed: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('Playback error: $e');
+      return false;
+    }
+  }
+
+  Future<void> _addToHistoryFromAutoplay(Map<String, dynamic> song, String roomId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(roomId)
+          .collection('history')
+          .add({
+        'name': song['name'],
+        'artist': song['artist'],
+        'uri': song['uri'],
+        'imageUrl': song['imageUrl'],
+        'playedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      print('History error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopAutoplay();
+    _tabController.dispose();
+    super.dispose(); // end of autoplay feature
   }
 
   @override

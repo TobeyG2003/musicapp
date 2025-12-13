@@ -13,8 +13,6 @@ import '../services/spotify_auth_service.dart';
 String clientid = "eecdb44badc44526a3fdf6bfe3b8308b";
 String secretClient = "977979869e7a48d9bbc8e1478c953ae3";
 String currentsonguri = "";
-bool canvote = true;
-
 
 class Partyscreen extends StatefulWidget {
   const Partyscreen({super.key, required this.roomId});
@@ -26,6 +24,7 @@ class Partyscreen extends StatefulWidget {
 }
 
 class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
+  bool canvote = true;
       StreamSubscription<DocumentSnapshot>? _currentSongListener;
     StreamSubscription<QuerySnapshot>? _queueToVotesSubscription;
   late TabController _tabController;
@@ -48,14 +47,12 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
         .doc(widget.roomId)
         .snapshots()
         .listen((doc) {
-      if (doc.exists && doc.data() != null && doc.data() != "" && doc.data()!.containsKey('currentSong')) {
+      if (doc.exists && doc.data()!.containsKey('currentSong')) {
         final newUri = doc['currentSong'] ?? "";
-        if (currentsonguri != newUri) {
-          setState(() {
-            currentsonguri = newUri;
-            canvote = true; // Allow voting again when song changes
-          });
-        }
+        setState(() {
+          currentsonguri = newUri;
+          canvote = true; // Always allow voting again, even for same song
+        });
       }
     });
   }
@@ -367,6 +364,12 @@ class SongScreen extends StatefulWidget {
 }
 
 class _SongScreenState extends State<SongScreen> {
+  bool canvote = true; // Controls if the user can vote
+  String? _currentSongName;
+  String? _currentSongArtist;
+  String? _currentSongImage;
+  String? _currentSongUri;
+
     /// Returns the data from the document in the votes collection with the greatest number of votes
     Future<Map<String, dynamic>?> _getTopSong() async {
       try {
@@ -387,6 +390,7 @@ class _SongScreenState extends State<SongScreen> {
     }
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
+  Map<String, List<String>> _trackGenres = {}; 
     bool _isSearching = false;
   String? _currentTrackName;
   String? _accessToken;
@@ -444,9 +448,17 @@ class _SongScreenState extends State<SongScreen> {
                     child: Column(
                       children: [
                         InkWell(
-                          onTap: (data['name'] == null || !canvote) ? null : () async {
+                          onTap: (data['name'] == null) ? null : () async {
+                            if (!canvote) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('You have already voted!'))
+                              );
+                              return;
+                            }
                             // Only allow voting if canvote is true
-                            canvote = false;
+                            setState(() {
+                              canvote = false;
+                            });
                             // Atomically increment vote count in Firestore
                             await votesRef.doc('song${i + 1}').update({
                               'votenum': FieldValue.increment(1),
@@ -496,9 +508,9 @@ class _SongScreenState extends State<SongScreen> {
                 backgroundColor: Colors.deepPurpleAccent,
               ),
               onPressed: () async {
-                var topsong = await _getTopSong();
-                if (topsong != null) {
-                  if (topsong['votenum'] == 0) {
+                final top = await _getTopSong();
+                if (top != null) {
+                  if (top['votenum'] == 0) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('No votes cast yet!'))
@@ -506,19 +518,35 @@ class _SongScreenState extends State<SongScreen> {
                     return;
                   }
                   _playSong(
-                    topsong['uri'],
-                    topsong['name'],
-                    topsong['previewUrl'],
-                    artist: topsong['artist'],
-                    imageUrl: topsong['imageUrl'],
+                    top['uri'],
+                    top['name'],
+                    top['previewUrl'],
+                    artist: top['artist'],
+                    imageUrl: top['imageUrl'],
                   );
                   FirebaseFirestore.instance
                       .collection('lobbies')
                       .doc(widget.roomId)
                       .collection('queue')
-                      .doc(topsong['songid'])
+                      .doc(top['songid'])
                       .delete();
                 }
+                FirebaseFirestore.instance
+                    .collection('lobbies')
+                    .doc(widget.roomId)
+                    .update({'currentSong': top?['uri']});
+                    FirebaseFirestore.instance
+                    .collection('lobbies')
+                    .doc(widget.roomId)
+                    .update({'currentSongName': top?['name']});
+                    FirebaseFirestore.instance
+                    .collection('lobbies')
+                    .doc(widget.roomId)
+                    .update({'currentSongArtist': top?['artist']});
+                    FirebaseFirestore.instance
+                    .collection('lobbies')
+                    .doc(widget.roomId)
+                    .update({'currentSongImage': top?['imageUrl']});
                 Navigator.of(context).pop();
               },
               child: Text('Next Song', style: TextStyle(color: Colors.white)),
@@ -551,6 +579,22 @@ class _SongScreenState extends State<SongScreen> {
     _getAccessToken();
     // Listen for token changes from the service
     _spotifyWebService.addTokenChangeListener(_onSpotifyTokenChanged);
+
+    // Listen to Firestore lobby's currentSongName, currentSongArtist, currentSongImage
+    FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .snapshots()
+        .listen((doc) {
+      if (doc.exists && doc.data() != null) {
+        setState(() {
+          _currentSongName = doc.data()!['currentSongName'] as String?;
+          _currentSongArtist = doc.data()!['currentSongArtist'] as String?;
+          _currentSongImage = doc.data()!['currentSongImage'] as String?;
+          _currentSongUri = doc.data()!['currentSong'] as String?;
+        });
+      }
+    });
   }
 
   void _onSpotifyTokenChanged() {
@@ -777,13 +821,20 @@ class _SongScreenState extends State<SongScreen> {
       print('Error fetching artist genres: $e');
     }
   }
-  Future<void> _playSong(String uri, String name, String? previewUrl, {String? artist, String? imageUrl}) async {
+  Future<void> _playSong(
+    String uri,
+    String name,
+    String? previewUrl, {
+    String? artist,
+    String? imageUrl,
+    bool addToHistory = true,
+  }) async {
     print('Playing song: $name, uri: $uri');
     try {
       // On Android, Web Playback SDK doesn't work in webview
       // So we'll open the Spotify app to play the full track
       final trackId = uri.split(':').last;
-      
+
       // Try to open in Spotify app first
       final spotifyAppUri = Uri.parse('spotify:track:$trackId');
       if (await canLaunchUrl(spotifyAppUri)) {
@@ -791,12 +842,13 @@ class _SongScreenState extends State<SongScreen> {
         setState(() {
           _currentTrackName = name;
         });
-        await _addToHistory({
-          'name': name,
-          'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
-          'uri': uri,
-          'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
-        }, widget.roomId);
+
+          await _addToHistory({
+            'name': name,
+            'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+            'uri': uri,
+            'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+          }, widget.roomId, addToHistory: addToHistory);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Playing in Spotify app: $name')),
         );
@@ -810,25 +862,17 @@ class _SongScreenState extends State<SongScreen> {
         setState(() {
           _currentTrackName = name;
         });
-        await _addToHistory({
-          'name': name,
-          'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
-          'uri': uri,
-          'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
-        }, widget.roomId);
+
+          await _addToHistory({
+            'name': name,
+            'artist': artist ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['artist'] ?? 'Unknown',
+            'uri': uri,
+            'imageUrl': imageUrl ?? _searchResults.firstWhere((t) => t['uri'] == uri, orElse: () => {})['imageUrl'],
+          }, widget.roomId, addToHistory: addToHistory);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Opening in Spotify Web: $name')),
         );
         return;
-      }
-
-      // Last fallback: play preview in-app
-      if (previewUrl != null && previewUrl.isNotEmpty) {
-        await _playPreview(previewUrl, name);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot play - no preview available')),
-        );
       }
     } catch (e) {
       print('Error playing song: $e');
@@ -854,33 +898,9 @@ class _SongScreenState extends State<SongScreen> {
     }
   }
 
-  Future<void> _playPreview(String previewUrl, String name) async {
+  Future<void> _addToHistory(Map<String, dynamic> songData, String roomId, {bool addToHistory = true}) async {
     try {
-      if (_isPlaying) {
-        await _audioPlayer.stop();
-      }
-      await _audioPlayer.play(UrlSource(previewUrl));
-      setState(() {
-        _currentTrackName = '$name (30s Preview)';
-      });
-      await _addToHistory({
-        'name': name.replaceAll(' (30s Preview)', ''),
-        'artist': 'Unknown',
-        'uri': '',
-        'imageUrl': null,
-      }, widget.roomId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Playing preview: $name')),
-      );
-    } catch (e) {
-      print('Preview play error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not play preview: $e')),
-      );
-    }
-  }
-  Future<void> _addToHistory(Map<String, dynamic> songData, String roomId) async {
-    try {
+      if (addToHistory) {
       await FirebaseFirestore.instance
           .collection('lobbies')
           .doc(roomId)
@@ -892,6 +912,7 @@ class _SongScreenState extends State<SongScreen> {
         'imageUrl': songData['imageUrl'],
         'playedAt': Timestamp.now(),
       });
+      }
       await FirebaseFirestore.instance
           .collection('users')
           .doc(FirebaseAuth.instance.currentUser!.uid)
@@ -924,7 +945,7 @@ class _SongScreenState extends State<SongScreen> {
         child: Column(
           children: [
             ElevatedButton(onPressed: () {showVotingDialog();}, child: Text('test')),
-            Text('Search & Play Songs', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text('Current Song', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             // Authentication button if not authenticated
             if (!_spotifyWebService.isAuthenticated)
@@ -975,7 +996,7 @@ class _SongScreenState extends State<SongScreen> {
               ),
             const SizedBox(height: 16),
             // Current song display
-            if (_currentTrackName != null) ...[
+            if (_currentSongName != null) ...[
               Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -987,100 +1008,48 @@ class _SongScreenState extends State<SongScreen> {
                     Text('Now Playing', style: TextStyle(fontSize: 14, color: Colors.grey)),
                     SizedBox(height: 8),
                     Text(
-                      _currentTrackName!,
+                      _currentSongName!,
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
                     SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.deepPurple),
-                          onPressed: () async {
-                            if (_isPlaying) {
-                              await _audioPlayer.pause();
-                            } else {
-                              await _audioPlayer.resume();
-                            }
-                          },
+                    if (_currentSongImage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            _currentSongImage!,
+                            width: 200,
+                            height: 200,
+                            fit: BoxFit.cover,
+                          ),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.stop, color: Colors.deepPurple),
-                          onPressed: () async {
-                            await _audioPlayer.stop();
-                            setState(() => _currentTrackName = null);
-                          },
+                      ),
+                    if (_currentSongArtist != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          _currentSongArtist!,
+                          style: TextStyle(fontSize: 18, color: Colors.white70, fontWeight: FontWeight.w500),
+                          textAlign: TextAlign.center,
                         ),
-                      ],
+                      ),
+                    IconButton(
+                      icon: Icon(Icons.play_arrow, color: Colors.deepPurple),
+                      onPressed: () async {
+                        _playSong(_currentSongUri!, _currentSongName!, null,
+                          artist: _currentSongArtist,
+                          imageUrl: _currentSongImage,
+                          addToHistory: false,);
+                      },
                     ),
                   ],
                 ),
               ),
               SizedBox(height: 16),
             ],
-            // Search bar
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search for a song...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onChanged: _searchSongs,
-            ),
             SizedBox(height: 16),
-
-            if (_searchResults.isNotEmpty) ...[
-              SizedBox(height: 16),
-          ],
-
-          if (_isSearching)
-            CircularProgressIndicator()
-          else if (_searchResults.isEmpty && _searchController.text.isNotEmpty)
-            Text(_searchResults.isEmpty 
-              ? 'No songs found' 
-              : 'No songs match selected filters')
-          else if (_searchResults.isNotEmpty)
-            ListView.builder(
-              shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
-              itemCount: _searchResults.length,
-              itemBuilder: (context, index) {
-                final track = _searchResults[index];
-                final trackId = track['id'];
-
-                return GestureDetector(
-                  onTap: () => _playSong(
-                    track['uri'],
-                    track['name'],
-                    track['previewUrl'],
-                    artist: track['artist'],
-                    imageUrl: track['imageUrl'],
-                  ),
-                  child: Card(
-                    margin: EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: track['imageUrl'] != null
-                              ? Image.network(track['imageUrl'], width: 50, height: 50, fit: BoxFit.cover)
-                              : Icon(Icons.music_note, size: 50),
-                          title: Text(track['name']),
-                          subtitle: Text(track['artist']),
-                          trailing: Icon(Icons.play_arrow),
-                        ),
-                        
-                        
-                      ],
-                    ),
-                  ),
-                );
-              },
-            )
-
-          else
-            Text('Search for songs to get started'),
           ],
         ),
       ),

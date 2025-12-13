@@ -591,6 +591,9 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
       'voting': voting,
       'votingtime': 10,
       'currentSong': null,
+      'currentSongName': null,
+      'currentSongArtist': null,
+      'currentSongImage': null,
     });
 
     await docRef.collection('messages').add({

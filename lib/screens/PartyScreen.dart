@@ -387,10 +387,6 @@ class _SongScreenState extends State<SongScreen> {
     }
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
-  Map<String, List<String>> _trackGenres = {};
-  Map<String, Map<String, dynamic>> _trackMoods = {};
-  Set<String> _selectedGenres = {};
-  Set<String> _selectedMoods = {};
     bool _isSearching = false;
   String? _currentTrackName;
   String? _accessToken;
@@ -600,14 +596,6 @@ class _SongScreenState extends State<SongScreen> {
       return;
     }
 
-    setState(() {
-      _searchResults.clear();
-      _trackGenres.clear();
-      _trackMoods.clear();
-      _selectedGenres.clear();
-      _selectedMoods.clear();
-    });
-
 
     setState(() => _isSearching = true);
 
@@ -694,16 +682,6 @@ class _SongScreenState extends State<SongScreen> {
       
       if (trackIds.isEmpty) return;
 
-      // Fetch audio features for mood analysis
-      await _fetchAudioFeatures(trackIds);
-      
-      // Fetch genres from artists
-      for (var track in _searchResults) {
-        if (track['artistId'] != null) {
-          await _fetchArtistGenres(track['artistId'], track['id']);
-        }
-      }
-      
       setState(() {});
     } catch (e) {
       print('Error enriching tracks: $e');
@@ -737,8 +715,7 @@ class _SongScreenState extends State<SongScreen> {
             if (feature == null) continue;
             
             final trackId = feature['id'];
-            final moods = _analyzeMood(feature);
-            _trackMoods[trackId] = moods;
+            
           }
         }
       }
@@ -860,55 +837,7 @@ class _SongScreenState extends State<SongScreen> {
       );
     }
   }
-  // helper for filtered results
-  List<Map<String, dynamic>> get _filteredResults {
-    if (_selectedGenres.isEmpty && _selectedMoods.isEmpty) {
-      return _searchResults;
-    }
-    
-    return _searchResults.where((track) {
-      final trackId = track['id'];
-      if (trackId == null) return false;
-      
-      // check genre filter
-      if (_selectedGenres.isNotEmpty) {
-        final genres = _trackGenres[trackId] ?? [];
-        final hasMatchingGenre = genres.any((g) => 
-          _selectedGenres.any((selected) => 
-            g.toLowerCase().contains(selected.toLowerCase())
-          )
-        );
-        if (!hasMatchingGenre) return false;
-      }
-      
-      // check mood filter
-      if (_selectedMoods.isNotEmpty) {
-        final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
-        final hasMatchingMood = moods.any((m) => _selectedMoods.contains(m));
-        if (!hasMatchingMood) return false;
-      }
-      
-      return true;
-    }).toList();
-  }
-
-  // get all available genres and moods from current results
-  Set<String> get _availableGenres {
-    final genres = <String>{};
-    for (var genreList in _trackGenres.values) {
-      genres.addAll(genreList);
-    }
-    return genres;
-  }
-
-  Set<String> get _availableMoods {
-    final moods = <String>{};
-    for (var moodData in _trackMoods.values) {
-      final trackMoods = moodData['moods'] as List<String>? ?? [];
-      moods.addAll(trackMoods);
-    }
-    return moods;
-  } // end of genres and moods
+  
 
 
   Future<void> _authenticateWithSpotify() async {
@@ -1103,28 +1032,24 @@ class _SongScreenState extends State<SongScreen> {
             SizedBox(height: 16),
 
             if (_searchResults.isNotEmpty) ...[
-              _buildFilterSection(),
               SizedBox(height: 16),
           ],
-            // Search results
-            // Search results
+
           if (_isSearching)
             CircularProgressIndicator()
-          else if (_filteredResults.isEmpty && _searchController.text.isNotEmpty)
+          else if (_searchResults.isEmpty && _searchController.text.isNotEmpty)
             Text(_searchResults.isEmpty 
               ? 'No songs found' 
               : 'No songs match selected filters')
-          else if (_filteredResults.isNotEmpty)
+          else if (_searchResults.isNotEmpty)
             ListView.builder(
               shrinkWrap: true,
               physics: NeverScrollableScrollPhysics(),
-              itemCount: _filteredResults.length,
+              itemCount: _searchResults.length,
               itemBuilder: (context, index) {
-                final track = _filteredResults[index];
+                final track = _searchResults[index];
                 final trackId = track['id'];
-                final genres = _trackGenres[trackId] ?? [];
-                final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
-                
+
                 return GestureDetector(
                   onTap: () => _playSong(
                     track['uri'],
@@ -1139,46 +1064,21 @@ class _SongScreenState extends State<SongScreen> {
                       children: [
                         ListTile(
                           leading: track['imageUrl'] != null
-                              ? Image.network(
-                                  track['imageUrl'],
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.cover,
-                                )
+                              ? Image.network(track['imageUrl'], width: 50, height: 50, fit: BoxFit.cover)
                               : Icon(Icons.music_note, size: 50),
                           title: Text(track['name']),
                           subtitle: Text(track['artist']),
                           trailing: Icon(Icons.play_arrow),
                         ),
-                        // Add tags below the ListTile
-                        if (moods.isNotEmpty || genres.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                ...moods.take(3).map((mood) => Chip(
-                                  label: Text(mood, style: TextStyle(fontSize: 11)),
-                                  backgroundColor: Colors.deepPurple.withOpacity(0.2),
-                                  padding: EdgeInsets.zero,
-                                  visualDensity: VisualDensity.compact,
-                                )),
-                                ...genres.take(2).map((genre) => Chip(
-                                  label: Text(genre, style: TextStyle(fontSize: 11)),
-                                  backgroundColor: Colors.deepPurple.withOpacity(0.2),
-                                  padding: EdgeInsets.zero,
-                                  visualDensity: VisualDensity.compact,
-                                )),
-                              ],
-                            ),
-                          ),
+                        
+                        
                       ],
                     ),
                   ),
                 );
               },
             )
+
           else
             Text('Search for songs to get started'),
           ],
@@ -1186,90 +1086,7 @@ class _SongScreenState extends State<SongScreen> {
       ),
     );
   }
-  Widget _buildFilterSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Filter by Vibe',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            if (_selectedGenres.isNotEmpty || _selectedMoods.isNotEmpty)
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _selectedGenres.clear();
-                    _selectedMoods.clear();
-                  });
-                },
-                child: Text('Clear All'),
-              ),
-          ],
-        ),
-        SizedBox(height: 8),
-        
-        // Mood filters
-        if (_availableMoods.isNotEmpty) ...[
-          Text('Moods:', style: TextStyle(fontSize: 14, color: Colors.grey)),
-          SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _availableMoods.map((mood) {
-              final isSelected = _selectedMoods.contains(mood);
-              return FilterChip(
-                label: Text(mood),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedMoods.add(mood);
-                    } else {
-                      _selectedMoods.remove(mood);
-                    }
-                  });
-                },
-                selectedColor: Colors.deepPurple.withOpacity(0.3),
-                checkmarkColor: Colors.deepPurple,
-              );
-            }).toList(),
-          ),
-          SizedBox(height: 12),
-        ],
-        
-      // Genre filters
-        if (_availableGenres.isNotEmpty) ...[
-          Text('Genres:', style: TextStyle(fontSize: 14, color: Colors.grey)),
-          SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _availableGenres.take(10).map((genre) {
-              final isSelected = _selectedGenres.contains(genre);
-              return FilterChip(
-                label: Text(genre),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedGenres.add(genre);
-                    } else {
-                      _selectedGenres.remove(genre);
-                    }
-                  });
-                },
-                selectedColor: Colors.blue.withOpacity(0.3),
-                checkmarkColor: Colors.blue,
-              );
-            }).toList(),
-          ),
-        ],
-      ],
-    );
-  }
+  
 }
   
 
@@ -1286,6 +1103,11 @@ class QueueScreen extends StatefulWidget {
 class _QueueScreenState extends State<QueueScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _searchResults = [];
+  Map<String, List<String>> _trackGenres = {};
+  Map<String, Map<String, dynamic>> _trackMoods = {};
+  Set<String> _selectedGenres = {};
+  Set<String> _selectedMoods = {};
+
   bool _isSearching = false;
   String? _accessToken;
   DateTime? _tokenExpiry;
@@ -1312,7 +1134,8 @@ class _QueueScreenState extends State<QueueScreen> {
         final data = jsonDecode(response.body);
         setState(() {
           _accessToken = data['access_token'];
-          _tokenExpiry = DateTime.now().add(Duration(seconds: data['expires_in'] ?? 3600));
+          _tokenExpiry =
+              DateTime.now().add(Duration(seconds: data['expires_in'] ?? 3600));
         });
       }
     } catch (e) {
@@ -1325,29 +1148,29 @@ class _QueueScreenState extends State<QueueScreen> {
       setState(() => _searchResults = []);
       return;
     }
-    
-    setState(() => _isSearching = true);
+
+    setState(() {
+      _searchResults.clear();
+      _trackGenres.clear();
+      _trackMoods.clear();
+      _selectedGenres.clear();
+      _selectedMoods.clear();
+      _isSearching = true;
+    });
 
     try {
-      if (_accessToken == null || (_tokenExpiry != null && DateTime.now().isAfter(_tokenExpiry!))) {
+      if (_accessToken == null ||
+          (_tokenExpiry != null && DateTime.now().isAfter(_tokenExpiry!))) {
         await _getAccessToken();
       }
 
-      if (_accessToken == null) {
-        throw Exception('Failed to obtain Spotify access token');
-      }
+      if (_accessToken == null) throw Exception('Failed to obtain token');
 
       final response = await http.get(
         Uri.parse('https://api.spotify.com/v1/search').replace(
-          queryParameters: {
-            'q': query,
-            'type': 'track',
-            'limit': '20',
-          },
+          queryParameters: {'q': query, 'type': 'track', 'limit': '20'},
         ),
-        headers: {
-          'Authorization': 'Bearer $_accessToken',
-        },
+        headers: {'Authorization': 'Bearer $_accessToken'},
       );
 
       if (response.statusCode == 200) {
@@ -1361,7 +1184,11 @@ class _QueueScreenState extends State<QueueScreen> {
               'artist': (track['artists'] as List?)?.isNotEmpty == true
                   ? track['artists'][0]['name'] ?? 'Unknown Artist'
                   : 'Unknown Artist',
+              'artistId': (track['artists'] as List?)?.isNotEmpty == true
+                  ? track['artists'][0]['id']
+                  : null,
               'uri': track['uri'] ?? '',
+              'id': track['id'],
               'previewUrl': track['preview_url'],
               'imageUrl': (track['album']['images'] as List?)?.isNotEmpty == true
                   ? track['album']['images'][0]['url']
@@ -1369,6 +1196,9 @@ class _QueueScreenState extends State<QueueScreen> {
             };
           }).toList();
         });
+
+        // tracks with moods and genres
+        await _enrichTracksWithMetadata();
       } else if (response.statusCode == 401) {
         await _getAccessToken();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1377,18 +1207,196 @@ class _QueueScreenState extends State<QueueScreen> {
       }
     } catch (e) {
       print('Search error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error searching songs: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error searching songs: $e')));
     } finally {
       setState(() => _isSearching = false);
     }
   }
 
+  Future<void> _enrichTracksWithMetadata() async {
+    if (_accessToken == null || _searchResults.isEmpty) return;
+
+    try {
+      // Fetch genres for each track
+      for (var track in _searchResults) {
+        if (track['artistId'] != null) {
+          await _fetchArtistGenres(track['artistId'], track['id']);
+        }
+      }
+
+      // Populate moods from genres
+      _trackMoods.clear();
+      for (var track in _searchResults) {
+        final trackId = track['id'];
+        if (trackId == null) continue;
+
+        final genres = _trackGenres[trackId] ?? [];
+        final moods = <String>{};
+
+        for (var genre in genres) {
+          genre = genre.toLowerCase();
+          if (genre.contains('pop') || genre.contains('dance') || genre.contains('happy')) {
+            moods.add('Happy');
+          } else if (genre.contains('chill') || genre.contains('ambient') || genre.contains('soft')) {
+            moods.add('Chill');
+          } else if (genre.contains('rock') || genre.contains('metal') || genre.contains('intense')) {
+            moods.add('Intense');
+          } else if (genre.contains('sad') || genre.contains('blues') || genre.contains('emo')) {
+            moods.add('Sad');
+          } else {
+            moods.add('Neutral');
+          }
+        }
+
+        _trackMoods[trackId] = {'moods': moods.toList()};
+      }
+
+      print('Track moods populated from genres: ${_trackMoods.length}');
+      setState(() {});
+    } catch (e) {
+      print('Error enriching tracks: $e');
+    }
+  }
+
+
+  Future<void> _fetchAudioFeatures(List<String> trackIds) async {
+    if (_accessToken == null || trackIds.isEmpty) return;
+
+    try {
+      // Spotify limits to 100 IDs per request
+      for (var i = 0; i < trackIds.length; i += 100) {
+        final batch = trackIds.sublist(
+          i,
+          (i + 100 > trackIds.length) ? trackIds.length : i + 100,
+        );
+
+        final response = await http.get(
+          Uri.parse('https://api.spotify.com/v1/audio-features')
+              .replace(queryParameters: {'ids': batch.join(',')}),
+          headers: {'Authorization': 'Bearer $_accessToken'},
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final features = (data['audio_features'] as List?)
+                  ?.where((f) => f != null && f['id'] != null)
+                  .toList() ??
+              [];
+
+          for (var feature in features) {
+            final trackId = feature['id'] as String;
+            _trackMoods[trackId] = _analyzeMood(feature);
+          }
+
+          print('Batch moods populated: ${_trackMoods.length}');
+        } else {
+           print('Failed to fetch audio features: ${response.statusCode} ${response.body}');
+
+        }
+      }
+
+      print('Total track moods: ${_trackMoods.length}');
+    } catch (e) {
+      print('Error fetching audio features: $e');
+    }
+  }
+
+
+
+  Map<String, dynamic> _analyzeMood(Map<String, dynamic> features) {
+    final valence = (features['valence'] ?? 0.5) as double;
+    final energy = (features['energy'] ?? 0.5) as double;
+    final danceability = (features['danceability'] ?? 0.5) as double;
+    final acousticness = (features['acousticness'] ?? 0.5) as double;
+    final tempo = (features['tempo'] ?? 120.0) as double;
+
+    List<String> moods = [];
+
+    if (valence >= 0.7 && energy >= 0.6) moods.add('Happy');
+    if (valence >= 0.5 && energy < 0.4) moods.add('Chill');
+    if (valence < 0.4 && energy >= 0.6) moods.add('Intense');
+    if (valence < 0.4 && energy < 0.4) moods.add('Sad');
+
+    if (danceability > 0.7) moods.add('Danceable');
+    if (acousticness > 0.6) moods.add('Acoustic');
+    if (tempo > 140) moods.add('Upbeat');
+    if (energy > 0.8) moods.add('Powerful');
+
+    if (moods.isEmpty) moods.add('Neutral');
+
+    return {
+      'moods': moods,
+      'valence': valence,
+      'energy': energy,
+      'danceability': danceability,
+    };
+  }
+
+  Future<void> _fetchArtistGenres(String artistId, String trackId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/artists/$artistId'),
+        headers: {'Authorization': 'Bearer $_accessToken'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final genres = (data['genres'] as List?)?.cast<String>() ?? [];
+        _trackGenres[trackId] = genres;
+      }
+    } catch (e) {
+      print('Error fetching artist genres: $e');
+    }
+  }
+
+  Set<String> get _availableGenres {
+    final genres = <String>{};
+    for (var genreList in _trackGenres.values) {
+      genres.addAll(genreList);
+    }
+    return genres;
+  }
+
+  Set<String> get _availableMoods {
+    final moods = <String>{};
+    for (var moodData in _trackMoods.values) {
+      final trackMoods = moodData['moods'] as List<String>? ?? [];
+      moods.addAll(trackMoods);
+    }
+    return moods;
+  }
+
+  List<Map<String, dynamic>> get _filteredResults {
+    if (_selectedGenres.isEmpty && _selectedMoods.isEmpty) return _searchResults;
+
+    return _searchResults.where((track) {
+      final trackId = track['id'];
+      if (trackId == null) return false;
+
+      // genre filter
+      if (_selectedGenres.isNotEmpty) {
+        final genres = _trackGenres[trackId] ?? [];
+        if (!genres.any((g) => _selectedGenres.contains(g))) return false;
+      }
+
+      // mood filter
+      if (_selectedMoods.isNotEmpty) {
+        final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
+        if (!moods.any((m) => _selectedMoods.contains(m))) return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
   Future<void> _addToQueue(Map<String, dynamic> track) async {
     try {
-      String userId = FirebaseAuth.instance.currentUser!.uid;
-      
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final trackId = track['id'];
+      final genres = _trackGenres[trackId] ?? [];
+      final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
+
       await FirebaseFirestore.instance
           .collection('lobbies')
           .doc(widget.roomId)
@@ -1399,22 +1407,22 @@ class _QueueScreenState extends State<QueueScreen> {
         'uri': track['uri'],
         'imageUrl': track['imageUrl'],
         'previewUrl': track['previewUrl'],
+        'genres': genres,
+        'moods': moods,
         'addedBy': userId,
         'timestamp': Timestamp.now(),
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Added "${track['name']}" to queue')),
-      );
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Added "${track['name']}" to queue')));
     } catch (e) {
       print('Error adding to queue: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add song to queue')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to add song to queue')));
     }
   }
 
- void _showSearchDialog() {
+  void _showSearchDialog() {
   showDialog(
     context: context,
     builder: (BuildContext context) {
@@ -1425,56 +1433,100 @@ class _QueueScreenState extends State<QueueScreen> {
             title: Text('Add Song to Queue'),
             content: Container(
               width: double.maxFinite,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Search for a song...',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onChanged: (query) async {
-                      await _searchSongs(query);
-                      setDialogState(() {});
-                    },
-                  ),
-                  SizedBox(height: 16),
-                  if (_isSearching)
-                    CircularProgressIndicator()
-                  else if (_searchResults.isNotEmpty)
-                    Container(
-                      height: 300,
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _searchResults.length,
-                        itemBuilder: (context, index) {
-                          final track = _searchResults[index];
-                          return ListTile(
-                            leading: track['imageUrl'] != null
-                                ? Image.network(
-                                    track['imageUrl'],
-                                    width: 50,
-                                    height: 50,
-                                    fit: BoxFit.cover,
-                                  )
-                                : Icon(Icons.music_note, size: 50),
-                            title: Text(track['name'], style: TextStyle(color: Colors.white)),
-                            subtitle: Text(track['artist'], style: TextStyle(color: Color.fromARGB(255, 131, 53, 233))),
-                            onTap: () async {
-                              await _addToQueue(track);
-                              Navigator.of(context).pop();
-                              setState(() {
-                                _searchResults = [];
-                                _searchController.clear();
-                              });
-                            },
-                          );
-                        },
+              height: 500, // fixed height to prevent overflow
+              child: SingleChildScrollView( 
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search for a song...',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
+                      onChanged: (query) async {
+                        await _searchSongs(query);
+                        setDialogState(() {});
+                      },
                     ),
-                ],
+                    SizedBox(height: 16),
+                    
+                    // Filter section
+                    if (_searchResults.isNotEmpty) ...[
+                      _buildFilterSection(setDialogState),
+                      SizedBox(height: 16),
+                    ],
+                    
+                    if (_isSearching)
+                      CircularProgressIndicator()
+                    else if (_filteredResults.isNotEmpty)
+                      Container(
+                        height: 300,
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _filteredResults.length,
+                          itemBuilder: (context, index) {
+                            final track = _filteredResults[index];
+                            final trackId = track['id'];
+                            final genres = _trackGenres[trackId] ?? [];
+                            final moods = _trackMoods[trackId]?['moods'] as List<String>? ?? [];
+                            
+                            return Card(
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    leading: track['imageUrl'] != null
+                                        ? Image.network(track['imageUrl'], width: 50, height: 50, fit: BoxFit.cover)
+                                        : Icon(Icons.music_note, size: 50),
+                                    title: Text(track['name'], style: TextStyle(color: Colors.deepPurple)),
+                                    subtitle: Text(track['artist'], style: TextStyle(color: Color.fromARGB(255, 131, 53, 233))),
+                                    onTap: () async {
+                                      await _addToQueue(track);
+                                      Navigator.of(context).pop();
+                                      setState(() {
+                                        _searchResults = [];
+                                        _trackGenres.clear();
+                                        _trackMoods.clear();
+                                        _selectedGenres.clear();
+                                        _selectedMoods.clear();
+                                        _searchController.clear();
+                                      });
+                                    },
+                                  ),
+                                  // Tags
+                                  if (moods.isNotEmpty || genres.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                                      child: Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          ...moods.take(2).map((mood) => Chip(
+                                            label: Text(mood, style: TextStyle(fontSize: 10)),
+                                            backgroundColor: Colors.deepPurple.withOpacity(0.3),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
+                                          )),
+                                          ...genres.take(2).map((genre) => Chip(
+                                            label: Text(genre, style: TextStyle(fontSize: 10)),
+                                            backgroundColor: Colors.deepPurple.withOpacity(0.3),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
+                                          )),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    else if (_searchResults.isNotEmpty && _filteredResults.isEmpty)
+                      Text('No songs match selected filters', style: TextStyle(color: Colors.grey)),
+                  ],
+                ),
               ),
             ),
             actions: [
@@ -1483,6 +1535,10 @@ class _QueueScreenState extends State<QueueScreen> {
                   Navigator.of(context).pop();
                   setState(() {
                     _searchResults = [];
+                    _trackGenres.clear();
+                    _trackMoods.clear();
+                    _selectedGenres.clear();
+                    _selectedMoods.clear();
                     _searchController.clear();
                   });
                 },
@@ -1495,6 +1551,90 @@ class _QueueScreenState extends State<QueueScreen> {
     },
   );
 }
+
+  Widget _buildFilterSection(StateSetter setDialogState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Filter by Vibe', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            if (_selectedGenres.isNotEmpty || _selectedMoods.isNotEmpty)
+              TextButton(
+                onPressed: () {
+                  setDialogState(() {
+                    _selectedGenres.clear();
+                    _selectedMoods.clear();
+                  });
+                },
+                child: Text('Clear', style: TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+        SizedBox(height: 8),
+        
+        // Moods
+        if (_availableMoods.isNotEmpty) ...[
+          Text('Moods:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _availableMoods.take(6).map((mood) {
+              final isSelected = _selectedMoods.contains(mood);
+              return FilterChip(
+                label: Text(mood, style: TextStyle(fontSize: 11)),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setDialogState(() {
+                    if (selected) {
+                      _selectedMoods.add(mood);
+                    } else {
+                      _selectedMoods.remove(mood);
+                    }
+                  });
+                },
+                selectedColor: Colors.deepPurple.withOpacity(0.4),
+                checkmarkColor: Colors.white,
+              );
+            }).toList(),
+          ),
+          SizedBox(height: 8),
+        ],
+        
+        // Genres
+        if (_availableGenres.isNotEmpty) ...[
+          Text('Genres:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _availableGenres.take(6).map((genre) {
+              final isSelected = _selectedGenres.contains(genre);
+              return FilterChip(
+                label: Text(genre, style: TextStyle(fontSize: 11)),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setDialogState(() {
+                    if (selected) {
+                      _selectedGenres.add(genre);
+                    } else {
+                      _selectedGenres.remove(genre);
+                    }
+                  });
+                },
+                selectedColor: Colors.blue.withOpacity(0.4),
+                checkmarkColor: Colors.white,
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -1514,7 +1654,6 @@ class _QueueScreenState extends State<QueueScreen> {
               onPressed: () {
                 _showSearchDialog();
               },
-              
               child: Icon(Icons.add),
             ),
             SizedBox(height: 16),
@@ -1550,7 +1689,6 @@ class _QueueScreenState extends State<QueueScreen> {
                     Map<String, dynamic> song = queueDoc.data() as Map<String, dynamic>;
                     
                     return Card(
-                      
                       margin: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                       child: ListTile(
                         leading: song['imageUrl'] != null

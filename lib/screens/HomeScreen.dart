@@ -367,14 +367,97 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      child: Center (
+      child: Center(
         child: Column(
           children: [
-            Text('Your Song History'),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Your Past Songs',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(_auth.currentUser?.uid)
+                  .collection('history')
+                  .orderBy('playedAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text('Error: ${snapshot.error}');
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return CircularProgressIndicator();
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      children: [
+                        Icon(Icons.history, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text('No songs played yet'),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    var historyDoc = snapshot.data!.docs[index];
+                    Map<String, dynamic> song = historyDoc.data() as Map<String, dynamic>;
+                    Timestamp playedAt = song['playedAt'] ?? Timestamp.now();
+                    
+                    return Card(
+                      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                      child: ListTile(
+                        leading: song['imageUrl'] != null
+                            ? Image.network(
+                                song['imageUrl'],
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover,
+                              )
+                            : Icon(Icons.music_note, size: 50),
+                        title: Text(song['name'] ?? 'Unknown'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(song['artist'] ?? 'Unknown Artist'),
+                            SizedBox(height: 4),
+                            Text(
+                              _formatTimestamp(playedAt),
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
-      )
-    ),
+        ),
+      ),
     );
+  }
+  String _formatTimestamp(Timestamp timestamp) {
+    DateTime dateTime = timestamp.toDate();
+    DateTime now = DateTime.now();
+    
+    if (dateTime.year == now.year && dateTime.month == now.month && dateTime.day == now.day) {
+      return 'Today at ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    } else {
+      return '${dateTime.month}/${dateTime.day} at ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    }
   }
 }
 

@@ -330,6 +330,17 @@ class _SongScreenState extends State<SongScreen> {
         'imageUrl': songData['imageUrl'],
         'playedAt': Timestamp.now(),
       });
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirebaseAuth.instance.currentUser!.uid)
+          .collection('history')
+          .add({
+        'name': songData['name'],
+        'artist': songData['artist'],
+        'uri': songData['uri'],
+        'imageUrl': songData['imageUrl'],
+        'playedAt': Timestamp.now(),
+      });
       print('Added to history: ${songData['name']}');
     } catch (e) {
       print('Error adding to history: $e');
@@ -645,6 +656,7 @@ class _QueueScreenState extends State<QueueScreen> {
       return StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
+            backgroundColor: const Color.fromARGB(255, 30, 30, 30),
             title: Text('Add Song to Queue'),
             content: Container(
               width: double.maxFinite,
@@ -683,8 +695,8 @@ class _QueueScreenState extends State<QueueScreen> {
                                     fit: BoxFit.cover,
                                   )
                                 : Icon(Icons.music_note, size: 50),
-                            title: Text(track['name']),
-                            subtitle: Text(track['artist']),
+                            title: Text(track['name'], style: TextStyle(color: Colors.white)),
+                            subtitle: Text(track['artist'], style: TextStyle(color: Color.fromARGB(255, 131, 53, 233))),
                             onTap: () async {
                               await _addToQueue(track);
                               Navigator.of(context).pop();

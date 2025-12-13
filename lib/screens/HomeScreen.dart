@@ -130,7 +130,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
                     visibility = newValue!;
                   },
                 ),
-                CheckboxListTile(
+                /*CheckboxListTile(
                   title: Text('Enable Voting', style: TextStyle(color: Colors.white),),
                   value: isVoting,
                   onChanged: (bool? value) {
@@ -138,7 +138,7 @@ class _HomeScreen extends State<HomeScreen> with TickerProviderStateMixin {
                       isVoting = value!;
                     });
                   },
-                ),
+                ),*/
               ],
             ),
             actions: <Widget>[
@@ -589,6 +589,7 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
       'lobbyName': lobbyName,
       'createdAt': FieldValue.serverTimestamp(),
       'voting': voting,
+      'votingtime': 10,
       'currentSong': null,
     });
 
@@ -602,6 +603,31 @@ Future<String?> createLobby(String visibility, bool voting, String lobbyName) as
 
     await docRef.collection('queue').add({
       'test': 'test',
+    });
+
+    await docRef.collection('votes').doc('song1').set({
+      'artist': null,
+      'imageUrl': null,
+      'name': null,
+      'uri': null,
+      'votenum': 0,
+      'songid': null,
+    });
+    await docRef.collection('votes').doc('song2').set({
+      'artist': null,
+      'imageUrl': null,
+      'name': null,
+      'uri': null,
+      'votenum': 0,
+      'songid': null,
+    });
+    await docRef.collection('votes').doc('song3').set({
+      'artist': null,
+      'imageUrl': null,
+      'name': null,
+      'uri': null,
+      'votenum': 0,
+      'songid': null,
     });
 
     joinPartyForCurrentUser(lobbyCode);
@@ -665,7 +691,7 @@ class _lobbycardState extends State<lobbycard> {
           ),
           SizedBox(height: 8),
           Text('Visibility: ${widget.lobby['visibility']}'),
-          Text('Voting: ${widget.lobby['voting'] ? "Enabled" : "Disabled"}'),
+          //Text('Voting: ${widget.lobby['voting'] ? "Enabled" : "Disabled"}'), autoplay scrapped, voting is default
         ],
       ),
     ),

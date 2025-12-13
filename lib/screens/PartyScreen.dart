@@ -24,6 +24,7 @@ class Partyscreen extends StatefulWidget {
 }
 
 class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
+    StreamSubscription<QuerySnapshot>? _queueToVotesSubscription;
   late TabController _tabController;
   StreamSubscription<QuerySnapshot>? _queueSubscription;
   String? _currentlyPlayingUri;
@@ -36,6 +37,45 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
     _tabController = TabController(length: 4, vsync: this);
     _spotifyAuth.initialize();
     _setupAutoplay();
+
+    // Listen to queue and sync top 3 to votes/song1-3
+    _queueToVotesSubscription = FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .collection('queue')
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .listen((snapshot) async {
+      final top3 = snapshot.docs.take(3).toList();
+      final votesRef = FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(widget.roomId)
+          .collection('votes');
+
+      for (int i = 0; i < 3; i++) {
+        final docId = 'song${i + 1}';
+        if (i < top3.length) {
+          final song = top3[i].data() as Map<String, dynamic>;
+          await votesRef.doc(docId).set({
+            'artist': song['artist'],
+            'imageUrl': song['imageUrl'],
+            'name': song['name'],
+            'uri': song['uri'],
+            'votenum': song['votenum'] ?? 0,
+            'songid': top3[i].id,
+          });
+        } else {
+          // Clear the doc if not enough songs
+          await votesRef.doc(docId).set({
+            'artist': null,
+            'imageUrl': null,
+            'name': null,
+            'uri': null,
+            'votenum': 0,
+          });
+        }
+      }
+    });
   } 
   void _setupAutoplay() { // beginning of auto play feature
     FirebaseFirestore.instance
@@ -64,6 +104,43 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
     });
   }
 
+  Future<void> _playTopVotedSong() async {
+    try {
+      // get top voted song from votes collection
+      final votesSnapshot = await FirebaseFirestore.instance
+          .collection('lobbies')
+          .doc(widget.roomId)
+          .collection('votes')
+          .orderBy('votenum', descending: true)
+          .limit(1)
+          .get();
+
+      if (votesSnapshot.docs.isEmpty) {
+        print('No songs in votes');
+        _currentlyPlayingUri = null;
+        return;
+      }
+
+      var topSongDoc = votesSnapshot.docs.first;
+      Map<String, dynamic> song = topSongDoc.data() as Map<String, dynamic>;
+      String uri = song['uri'] ?? '';
+      if (uri.isEmpty) return;
+
+      // only play if it's different from what was playing
+      if (uri != _currentlyPlayingUri) {
+        print('Playing top voted song: ${song['name']}');
+        bool success = await _playOnSpotify(uri, song);
+        if (success) {
+          _currentlyPlayingUri = uri;
+          await _addToHistoryFromAutoplay(song, widget.roomId);
+          // Optionally, you could reset votes here or remove the song from votes
+        }
+      }
+    } catch (e) {
+      print('Play top voted error: $e');
+    }
+  }
+
   Future<void> _checkAndPlayNext() async {
     try {
       final accessToken = await _spotifyAuth.getValidAccessToken();
@@ -84,10 +161,10 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
         currentTrackUri = playbackData['item']?['uri'];
       }
 
-      // if nothing is playing or song finished, play next from queue
+      // if nothing is playing or song finished, play top voted song
       if (!isPlaying || currentTrackUri == null) {
-        print('Nothing playing - checking queue for next song'); // messages for terminal to make sure it works
-        await _playNextFromQueue();
+        print('Nothing playing - checking votes for top song');
+        await _playTopVotedSong();
       } else {
         print('Currently playing: $currentTrackUri');
         _currentlyPlayingUri = currentTrackUri;
@@ -200,6 +277,7 @@ class _PartyScreen extends State<Partyscreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _stopAutoplay();
+    _queueToVotesSubscription?.cancel();
     _tabController.dispose();
     super.dispose(); // end of autoplay feature
   }
@@ -261,6 +339,112 @@ class _SongScreenState extends State<SongScreen> {
   late AudioPlayer _audioPlayer;
   bool _isPlaying = false;
   late SpotifyWebPlaybackService _spotifyWebService;
+
+  void showVotingDialog() {
+    final votesRef = FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .collection('votes');
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color.fromARGB(255, 30, 30, 30),
+          title: Text('Voting', style: TextStyle(color: Colors.white)),
+          content: FutureBuilder<List<DocumentSnapshot>>(
+            future: Future.wait([
+              votesRef.doc('song1').get(),
+              votesRef.doc('song2').get(),
+              votesRef.doc('song3').get(),
+            ]),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) {
+                  final doc = docs[i];
+                  final data = doc.data() as Map<String, dynamic>?;
+                  if (data == null || data['name'] == null) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            color: Colors.grey[800],
+                            child: Icon(Icons.music_note, color: Colors.white, size: 40),
+                          ),
+                          SizedBox(height: 8),
+                          Text('No Song', style: TextStyle(color: Colors.white54)),
+                        ],
+                      ),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Column(
+                      children: [
+                        InkWell(
+                          onTap: data['name'] == null ? null : () async {
+                            // Atomically increment vote count in Firestore
+                            await votesRef.doc('song${i + 1}').update({
+                              'votenum': FieldValue.increment(1),
+                            });
+                            Navigator.of(context).pop();
+                          },
+                          child: data['imageUrl'] != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    data['imageUrl'],
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                              : Container(
+                                  width: 80,
+                                  height: 80,
+                                  color: Colors.grey[800],
+                                  child: Icon(Icons.music_note, color: Colors.white, size: 40),
+                                ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          data['name'] ?? '',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                        Text(
+                          data['artist'] ?? '',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 4),
+                        Text('Votes: ${data['votenum'] ?? 0}', style: TextStyle(color: Colors.deepPurpleAccent)),
+                      ],
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('No vote', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   void initState() {
@@ -535,6 +719,7 @@ class _SongScreenState extends State<SongScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            ElevatedButton(onPressed: () {showVotingDialog();}, child: Text('test')),
             Text('Search & Play Songs', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             // Authentication button if not authenticated
@@ -1444,19 +1629,104 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void showVotingDialog() {
+    final votesRef = FirebaseFirestore.instance
+        .collection('lobbies')
+        .doc(widget.roomId)
+        .collection('votes');
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: const Color.fromARGB(255, 30, 30, 30),
-          title: Text('Voting Feature'),
-          content: Text('This is where the voting feature will be implemented.'),
+          title: Text('Voting', style: TextStyle(color: Colors.white)),
+          content: FutureBuilder<List<DocumentSnapshot>>(
+            future: Future.wait([
+              votesRef.doc('song1').get(),
+              votesRef.doc('song2').get(),
+              votesRef.doc('song3').get(),
+            ]),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) {
+                  final doc = docs[i];
+                  final data = doc.data() as Map<String, dynamic>?;
+                  if (data == null || data['name'] == null) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            color: Colors.grey[800],
+                            child: Icon(Icons.music_note, color: Colors.white, size: 40),
+                          ),
+                          SizedBox(height: 8),
+                          Text('No Song', style: TextStyle(color: Colors.white54)),
+                        ],
+                      ),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Column(
+                      children: [
+                        InkWell(
+                          onTap: data['name'] == null ? null : () async {
+                            // Atomically increment vote count in Firestore
+                            await votesRef.doc('song${i + 1}').update({
+                              'votenum': FieldValue.increment(1),
+                            });
+                            Navigator.of(context).pop();
+                          },
+                          child: data['imageUrl'] != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    data['imageUrl'],
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                              : Container(
+                                  width: 80,
+                                  height: 80,
+                                  color: Colors.grey[800],
+                                  child: Icon(Icons.music_note, color: Colors.white, size: 40),
+                                ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          data['name'] ?? '',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                        Text(
+                          data['artist'] ?? '',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 4),
+                        Text('Votes: ${data['votenum'] ?? 0}', style: TextStyle(color: Colors.deepPurpleAccent)),
+                      ],
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
               },
-              child: Text('Close'),
+              child: Text('No vote', style: TextStyle(color: Colors.white)),
             ),
           ],
         );

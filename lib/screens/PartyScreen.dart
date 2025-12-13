@@ -1071,56 +1071,91 @@ class _QueueScreenState extends State<QueueScreen> {
     if (_accessToken == null || _searchResults.isEmpty) return;
 
     try {
-      // track IDs
-      final trackIds =
-          _searchResults.where((t) => t['id'] != null).map((t) => t['id'] as String).toList();
-      if (trackIds.isEmpty) return;
-
-      await _fetchAudioFeatures(trackIds);
-
-      // fetch genres
+      // Fetch genres for each track
       for (var track in _searchResults) {
         if (track['artistId'] != null) {
           await _fetchArtistGenres(track['artistId'], track['id']);
         }
       }
 
+      // Populate moods from genres
+      _trackMoods.clear();
+      for (var track in _searchResults) {
+        final trackId = track['id'];
+        if (trackId == null) continue;
+
+        final genres = _trackGenres[trackId] ?? [];
+        final moods = <String>{};
+
+        for (var genre in genres) {
+          genre = genre.toLowerCase();
+          if (genre.contains('pop') || genre.contains('dance') || genre.contains('happy')) {
+            moods.add('Happy');
+          } else if (genre.contains('chill') || genre.contains('ambient') || genre.contains('soft')) {
+            moods.add('Chill');
+          } else if (genre.contains('rock') || genre.contains('metal') || genre.contains('intense')) {
+            moods.add('Intense');
+          } else if (genre.contains('sad') || genre.contains('blues') || genre.contains('emo')) {
+            moods.add('Sad');
+          } else {
+            moods.add('Neutral');
+          }
+        }
+
+        _trackMoods[trackId] = {'moods': moods.toList()};
+      }
+
+      print('Track moods populated from genres: ${_trackMoods.length}');
       setState(() {});
     } catch (e) {
       print('Error enriching tracks: $e');
     }
   }
 
-  Future<void> _fetchAudioFeatures(List<String> trackIds) async {
-    try {
-      final batches = <List<String>>[];
-      for (var i = 0; i < trackIds.length; i += 100) {
-        batches.add(trackIds.sublist(i, i + 100 > trackIds.length ? trackIds.length : i + 100));
-      }
 
-      for (var batch in batches) {
+  Future<void> _fetchAudioFeatures(List<String> trackIds) async {
+    if (_accessToken == null || trackIds.isEmpty) return;
+
+    try {
+      // Spotify limits to 100 IDs per request
+      for (var i = 0; i < trackIds.length; i += 100) {
+        final batch = trackIds.sublist(
+          i,
+          (i + 100 > trackIds.length) ? trackIds.length : i + 100,
+        );
+
         final response = await http.get(
-          Uri.parse('https://api.spotify.com/v1/audio-features').replace(
-            queryParameters: {'ids': batch.join(',')},
-          ),
+          Uri.parse('https://api.spotify.com/v1/audio-features')
+              .replace(queryParameters: {'ids': batch.join(',')}),
           headers: {'Authorization': 'Bearer $_accessToken'},
         );
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
-          final features = data['audio_features'] as List;
+          final features = (data['audio_features'] as List?)
+                  ?.where((f) => f != null && f['id'] != null)
+                  .toList() ??
+              [];
 
           for (var feature in features) {
-            if (feature == null) continue;
-            final trackId = feature['id'];
+            final trackId = feature['id'] as String;
             _trackMoods[trackId] = _analyzeMood(feature);
           }
+
+          print('Batch moods populated: ${_trackMoods.length}');
+        } else {
+           print('Failed to fetch audio features: ${response.statusCode} ${response.body}');
+
         }
       }
+
+      print('Total track moods: ${_trackMoods.length}');
     } catch (e) {
       print('Error fetching audio features: $e');
     }
   }
+
+
 
   Map<String, dynamic> _analyzeMood(Map<String, dynamic> features) {
     final valence = (features['valence'] ?? 0.5) as double;

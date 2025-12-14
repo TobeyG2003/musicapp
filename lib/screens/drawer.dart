@@ -195,119 +195,122 @@ class _profilescreenState extends State<profilescreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text('Profile Screen', style: TextStyle(color: Colors.white)), backgroundColor: const Color.fromARGB(255, 98, 39, 176),),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            currentimage == null
-                ? Icon(Icons.account_circle, size: 225)
-                : ClipRRect(
-                    borderRadius: BorderRadius.circular(100.0),
-                    child: Builder(
-                      builder: (context) {
-                        try {
-                          return Image.memory(
-                            base64Decode(currentimage!),
-                            height: 200,
-                            width: 200,
-                            fit: BoxFit.cover,
-                          );
-                        } catch (e) {
-                          return Icon(Icons.account_circle, size: 225);
-                        }
-                      },
+      body: SingleChildScrollView(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              currentimage == null
+                  ? Icon(Icons.account_circle, size: 225)
+                  : ClipRRect(
+                      borderRadius: BorderRadius.circular(100.0),
+                      child: Builder(
+                        builder: (context) {
+                          try {
+                            return Image.memory(
+                              base64Decode(currentimage!),
+                              height: 200,
+                              width: 200,
+                              fit: BoxFit.cover,
+                            );
+                          } catch (e) {
+                            return Icon(Icons.account_circle, size: 225);
+                          }
+                        },
+                      ),
                     ),
+              SizedBox(height: 10),
+              Text(
+                name ?? 'No name set',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 20),
+              Text('Display Name'),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: TextField(
+                  controller: _displayNameController,
+                  decoration: InputDecoration(
+                    labelText: 'New Display Name',
+                    border: OutlineInputBorder(),
                   ),
-            SizedBox(height: 10),
-            Text(
-              name ?? 'No name set',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 20),
-            Text('Display Name'),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: _displayNameController,
-                decoration: InputDecoration(
-                  labelText: 'New Display Name',
-                  border: OutlineInputBorder(),
                 ),
               ),
-            ),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _updateDisplayName,
-              child: _isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text('Update Display Name'),
-            ),
-            SizedBox(height: 20),
-            Text('Profile Picture'),
-            ElevatedButton(
-              onPressed: () async {
-                final ImagePicker picker = ImagePicker();
-                final XFile? image = await picker.pickImage(
-                  source: ImageSource.gallery,
-                );
-                if (image != null) {
-                  final Uint8List bytes = await image.readAsBytes();
-                  setState(() {
-                    imagestring = base64Encode(bytes);
-                  });
-                  print('Selected image path: ${image.path}');
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color.fromARGB(255, 188, 44, 44),
-              ),
-              child: Text(
-                'Select Image',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-            if (imagestring != null) ...[
-              SizedBox(height: 10),
-              Text('Image selected', style: TextStyle(fontSize: 16)),
-              SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(100.0),
-                child: Builder(
-                  builder: (context) {
-                    try {
-                      return Image.memory(
-                        base64Decode(imagestring!),
-                        height: 200,
-                        width: 200,
-                        fit: BoxFit.cover,
-                      );
-                    } catch (e) {
-                      return Container(
-                        height: 150,
-                        width: 200,
-                        color: Colors.grey[300],
-                        child: Center(child: Text('Error loading image')),
-                      );
-                    }
-                  },
-                ),
-              ),
-              SizedBox(height: 10),
               ElevatedButton(
-                onPressed: _isLoading ? null : _updateProfileImage,
+                onPressed: _isLoading ? null : _updateDisplayName,
                 child: _isLoading
                     ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text('Save Profile Image'),
+                    : Text('Update Display Name'),
               ),
+              SizedBox(height: 20),
+              Text('Profile Picture'),
+              ElevatedButton(
+                onPressed: () async {
+                  final ImagePicker picker = ImagePicker();
+                  final XFile? image = await picker.pickImage(
+                    source: ImageSource.gallery,
+                  );
+                  if (image != null) {
+                    final Uint8List bytes = await image.readAsBytes();
+                    setState(() {
+                      imagestring = base64Encode(bytes);
+                    });
+                    print('Selected image path: ${image.path}');
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color.fromARGB(255, 188, 44, 44),
+                ),
+                child: Text(
+                  'Select Image',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+              if (imagestring != null) ...[
+                SizedBox(height: 10),
+                Text('Image selected', style: TextStyle(fontSize: 16)),
+                SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(100.0),
+                  child: Builder(
+                    builder: (context) {
+                      try {
+                        return Image.memory(
+                          base64Decode(imagestring!),
+                          height: 200,
+                          width: 200,
+                          fit: BoxFit.cover,
+                        );
+                      } catch (e) {
+                        return Container(
+                          height: 150,
+                          width: 200,
+                          color: Colors.grey[300],
+                          child: Center(child: Text('Error loading image')),
+                        );
+                      }
+                    },
+                  ),
+                ),
+                SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _updateProfileImage,
+                  child: _isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('Save Profile Image'),
+                ),
+                SizedBox(height: 20),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

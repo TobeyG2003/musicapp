@@ -944,8 +944,9 @@ class _SongScreenState extends State<SongScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            ElevatedButton(onPressed: () {showVotingDialog();}, child: Text('test')),
             Text('Current Song', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            ElevatedButton(onPressed: () {showVotingDialog();}, child: Text('Voting')),
             const SizedBox(height: 16),
             // Authentication button if not authenticated
             if (!_spotifyWebService.isAuthenticated)
